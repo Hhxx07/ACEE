@@ -77,6 +77,23 @@ OPENAI_MODEL=deepseek-chat
 python run.py
 ```
 
+## Offline Shell Parser
+
+`Shell Agent` supports an offline command parser in `src/offline_shell_parser.py`.
+
+- Uses **regex + local NLP (`jieba`)** for Chinese-first intent parsing.
+- Produces structured risk output:
+    - `risk_level`: `low | medium | high`
+    - `risk_score`: numeric confidence in `[0, 1]`
+    - `risk_reasons`: matched risk factors (for explainability)
+- In `auto` mode, parser can set `allow_fallback=True` to let LLM handle unclear intents.
+
+Configure with `ACEE_SHELL_MODE`:
+
+- `auto` (default): try offline parser first, fallback to LLM only if allowed
+- `offline`: offline parser only
+- `llm`: skip offline parser and call LLM directly
+
 ### Input Modes
 
 | Mode | Prefix | Example | Behavior |

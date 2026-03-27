@@ -35,14 +35,21 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
 
         # If LLM wants to call tools
         if result.get("tool_calls"):
+            normalized_tool_calls = []
+            for tc in result["tool_calls"]:
+                if isinstance(tc, dict):
+                    tc = tc.copy()
+                    tc["type"] = tc.get("type") or "function"
+                normalized_tool_calls.append(tc)
+
             # Add assistant message with tool calls
             messages.append({
                 "role": "assistant",
                 "content": result.get("content") or "",
-                "tool_calls": result["tool_calls"],
+                "tool_calls": normalized_tool_calls,
             })
 
-            for tc in result["tool_calls"]:
+            for tc in normalized_tool_calls:
                 func_name = tc["function"]["name"]
                 try:
                     args = json.loads(tc["function"]["arguments"])
