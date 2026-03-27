@@ -18,7 +18,7 @@ _PERMISSIONS: dict[str, str] = {}
 
 # Default permissions by category
 DEFAULT_PERMISSIONS = {
-    "read_file": "ALLOW",
+    "read_file": "DENY",
     "list_directory": "ALLOW",
     "get_system_info": "ALLOW",
     "file_exists": "ALLOW",

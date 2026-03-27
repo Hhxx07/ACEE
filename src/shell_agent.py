@@ -81,13 +81,11 @@ async def generate_command(task_description: str, user_input: str) -> dict:
 
     result = await llm_client.chat_json(messages)
     if result is None:
-        return {
-            "intent": "refuse",
-            "command": "",
-            "reason": "Failed to generate command (LLM parse error)",
-            "risk_level": "high",
-            "safety_check": {"level": "deny", "reasons": ["Parse failure"]},
-        }
+        return build_error_response("Failed to generate command (LLM parse error)")
+    
+    intent = result.get("intent","refuse").lower()
+    """ # 原先的代码没有处理ask_clarification
+
 
     # Double-check with local safety engine
     command = result.get("command", "")
@@ -105,8 +103,61 @@ async def generate_command(task_description: str, user_input: str) -> dict:
     else:
         result["safety_check"] = {"level": "safe", "reasons": []}
 
+    """
+    if intent == "ask_clarification":
+         # 显式提取 clarification_options，如果 LLM 没有提供则默认为空列表
+        clarification_options = result.get("clarification_options", [])
+        
+        # 构建返回结果
+        clarification_result = {
+            "intent": "ask_clarification",
+            "command": "",  # 澄清时命令为空
+            "reason": result.get("reason", "需要澄清用户意图"),
+            "risk_level": "low",  # 澄清本身是低风险的
+            "clarification_options": clarification_options,  # 确保返回选项
+            "safety_check": {"level": "safe", "reasons": ["Awaiting user clarification"]}
+        }
+        return clarification_result
+
+    elif intent == "refuse":
+        # 如果是拒绝，直接返回
+        result["safety_check"] = {"level": "deny", "reasons": [result.get("reason", "Unknown reason")]}
+        return result
+
+    elif intent == "run_command":
+        # 只有在明确要执行命令时，才进行安全检查
+        command = result.get("command", "").strip()
+        if not command:
+            return build_error_response("Empty command")
+        
+        safety = check_command(command)
+        result["safety_check"] = safety
+
+        # 安全检查拦截：这里可以决定是拒绝还是降级
+        if safety["level"] == "deny":
+            result["intent"] = "refuse"
+            result["reason"] = f"BLOCKED by safety engine: {'; '.join(safety['reasons'])}"
+            result["risk_level"] = "high"
+        # 如果只是警告，可以保留 run_command 意图，但提示用户
+        elif safety["level"] == "warn" and result.get("risk_level") == "low":
+            result["risk_level"] = "medium"
+
+        return result
+
+    else:
+        # 兜底逻辑
+        return build_error_response("Invalid intent from LLM")
     return result
 
+def build_error_response(reason):
+    """辅助函数：构建错误返回"""
+    return {
+        "intent": "refuse",
+        "command": "",
+        "reason": reason,
+        "risk_level": "high",
+        "safety_check": {"level": "deny", "reasons": [reason]},
+    }
 
 # --- A2A Protocol integration (Bonus 3) ---
 
