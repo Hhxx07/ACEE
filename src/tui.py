@@ -10,6 +10,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Input, RichLog, Static
 from textual.binding import Binding
+from textual.events import Key
 from rich.text import Text
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -21,6 +22,29 @@ from . import tool_agent
 from . import llm_client
 from .memory_agent import save_memory, search_memory, get_relevant_context
 from .tools import file_tools, system_tools, network_tools
+from .agents_md import load_agents_md
+
+
+# Task 3.3: Common commands for Tab auto-completion
+COMPLETION_COMMANDS = [
+    # Direct shell commands (/ prefix)
+    "/ls", "/ls -la", "/ls -R",
+    "/pwd", "/cd", "/cat", "/head", "/tail",
+    "/grep", "/find", "/wc", "/echo",
+    "/git status", "/git log", "/git diff", "/git branch",
+    "/pip install", "/pip list", "/python",
+    "/ping", "/curl", "/wget",
+    "/mkdir", "/rm", "/mv", "/cp", "/chmod",
+    "/ps aux", "/top", "/df -h", "/du -sh",
+    "/date", "/whoami", "/uname -a",
+    # Natural language shortcuts
+    "list files", "show files", "list all python files",
+    "find python files", "count lines",
+    "system info", "disk usage",
+    "current directory", "what time is it",
+    "git status", "git log", "git diff",
+    "!memory save", "!memory search",
+]
 
 
 class StatusBar(Static):
@@ -84,6 +108,12 @@ class AgentCLI(App):
         super().__init__()
         self.conversation_history: list[dict] = []
         self._current_task: asyncio.Task | None = None
+        # Task 3.3 / 进阶: Command history
+        self._command_history: list[str] = []
+        self._history_index: int = -1
+        # Task 3.3: Tab completion state
+        self._tab_candidates: list[str] = []
+        self._tab_index: int = -1
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -98,13 +128,22 @@ class AgentCLI(App):
         system_tools.register_all()
         network_tools.register_all()
 
+        # Register agents on A2A bus (Bonus 3)
+        orchestrator.register_on_bus()
+        shell_agent.register_on_bus()
+        tool_agent.register_on_bus()
+
+        # Load AGENTS.md if present (Bonus 4)
+        load_agents_md()
+
         output = self.query_one("#output-area", RichLog)
         output.write(Panel(
             "[bold cyan]Welcome to Multi-Agent CLI![/]\n\n"
             "• Type natural language to interact with AI agents\n"
             "• Prefix [bold green]/[/] for direct shell commands (e.g. [green]/ls -la[/])\n"
+            "• [bold]Tab[/] for auto-completion, [bold]Up/Down[/] for command history\n"
             "• [bold]Ctrl+C[/] to quit, [bold]Ctrl+L[/] to clear\n\n"
-            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent[/]",
+            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent | Memory Agent[/]",
             title="🚀 Multi-Agent CLI",
             border_style="cyan",
         ))
@@ -119,6 +158,69 @@ class AgentCLI(App):
         except Exception:
             pass
 
+    def on_key(self, event: Key):
+        """Handle key events for command history (Up/Down) and Tab completion."""
+        input_widget = self.query_one("#input-area", Input)
+
+        if event.key == "up":
+            # Navigate command history backwards
+            if self._command_history:
+                if self._history_index < len(self._command_history) - 1:
+                    self._history_index += 1
+                input_widget.value = self._command_history[-(self._history_index + 1)]
+                input_widget.cursor_position = len(input_widget.value)
+            event.prevent_default()
+            event.stop()
+            return
+
+        if event.key == "down":
+            # Navigate command history forwards
+            if self._history_index > 0:
+                self._history_index -= 1
+                input_widget.value = self._command_history[-(self._history_index + 1)]
+                input_widget.cursor_position = len(input_widget.value)
+            elif self._history_index == 0:
+                self._history_index = -1
+                input_widget.value = ""
+            event.prevent_default()
+            event.stop()
+            return
+
+        if event.key == "tab":
+            # Task 3.3: Tab auto-completion
+            current = input_widget.value
+            if not current:
+                return
+
+            if self._tab_index == -1 or not self._tab_candidates:
+                # Build candidate list
+                self._tab_candidates = [
+                    c for c in COMPLETION_COMMANDS
+                    if c.lower().startswith(current.lower())
+                ]
+                # Also add matching files from cwd
+                try:
+                    for entry in os.listdir(".")[:50]:
+                        if entry.lower().startswith(current.lstrip("/").lower()):
+                            prefix = "/" if current.startswith("/") else ""
+                            self._tab_candidates.append(prefix + entry)
+                except Exception:
+                    pass
+                self._tab_index = 0
+            else:
+                self._tab_index = (self._tab_index + 1) % max(len(self._tab_candidates), 1)
+
+            if self._tab_candidates:
+                input_widget.value = self._tab_candidates[self._tab_index]
+                input_widget.cursor_position = len(input_widget.value)
+            event.prevent_default()
+            event.stop()
+            return
+
+        # Reset tab state on any other key
+        self._tab_candidates = []
+        self._tab_index = -1
+
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted):
         user_input = event.value.strip()
@@ -127,6 +229,13 @@ class AgentCLI(App):
 
         input_widget = self.query_one("#input-area", Input)
         input_widget.value = ""
+
+        # Add to command history (进阶: 命令历史记录)
+        if not self._command_history or self._command_history[-1] != user_input:
+            self._command_history.append(user_input)
+        self._history_index = -1
+        self._tab_candidates = []
+        self._tab_index = -1
 
         output = self.query_one("#output-area", RichLog)
         output.write(Text(f"\n❯ {user_input}", style="bold green"))

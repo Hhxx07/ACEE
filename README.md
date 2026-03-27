@@ -29,12 +29,17 @@ Engine     (File/System/Network)
 
 - **TUI Interface** (Textual): Input bar, scrollable output area, live status bar
 - **Streaming Output**: Real-time subprocess output and LLM token streaming
-- **Orchestrator Agent**: Intent classification with context injection (OS, cwd, directory listing)
+- **Orchestrator Agent**: Intent classification with context injection (OS, cwd, directory listing, git status, env vars)
 - **Shell Agent**: Natural language → shell commands with structured JSON output
 - **Safety Engine**: Dual-layer protection (LLM risk assessment + local rule engine)
 - **Tool Agent**: MCP-style tools with LLM function calling and ReAct loop
 - **Permission System**: Three-tier (ALLOW / ASK / DENY) per tool
 - **Memory Agent**: Persistent cross-session memory (JSON-based)
+- **Local NLP** (Bonus 2): Keyword-based NL→command conversion without LLM for common operations
+- **A2A Protocol** (Bonus 3): Standardized agent-to-agent messaging with message bus
+- **AGENTS.md** (Bonus 4): Dynamic agent discovery and configuration via config file
+- **Tab Completion** (Task 3.3): Auto-complete commands and file names with Tab key
+- **Command History**: Navigate previous commands with Up/Down arrows
 
 ## Setup
 
@@ -87,6 +92,8 @@ python run.py
 
 ### Keyboard Shortcuts
 
+- **Tab**: Auto-complete commands and file names
+- **Up/Down**: Navigate command history
 - **Ctrl+C**: Quit
 - **Ctrl+L**: Clear output
 
@@ -102,14 +109,17 @@ assignment_A/
 ├── memory.json             # Persistent memory store
 └── src/
     ├── main.py             # App bootstrap
-    ├── tui.py              # Task 1: Textual TUI
+    ├── tui.py              # Task 1: Textual TUI + Tab completion + history
     ├── process_manager.py  # Task 1.2: Async subprocess
     ├── llm_client.py       # Task 2.1: OpenAI API client
-    ├── orchestrator.py     # Task 2.2-2.3: Intent + dispatch
-    ├── shell_agent.py      # Task 3.1: NL → shell command
+    ├── orchestrator.py     # Task 2.2-2.3: Intent + dispatch + rich context
+    ├── shell_agent.py      # Task 3.1-3.3: NL → shell + clarification
     ├── safety.py           # Task 3.2: Safety rule engine
     ├── tool_agent.py       # Task 4.4: Tool Agent + ReAct
     ├── memory_agent.py     # Bonus 1: Memory
+    ├── local_nlp.py        # Bonus 2: Local NL→command (no LLM)
+    ├── a2a_protocol.py     # Bonus 3: Agent-to-Agent protocol
+    ├── agents_md.py        # Bonus 4: AGENTS.md loader
     └── tools/
         ├── registry.py     # Task 4.1: MCP-style registry
         ├── file_tools.py   # Task 4.2: File operations
@@ -124,3 +134,44 @@ assignment_A/
 | File | read_file, write_file, list_directory, file_exists, search_files, count_lines | ALLOW / ASK |
 | System | get_system_info, get_disk_usage, get_env_var | ALLOW |
 | Network | fetch_url, call_rest_api | ASK |
+
+## Bonus Features
+
+### Bonus 2: Local NLP (No LLM)
+
+Common natural language patterns are converted to shell commands locally using keyword matching, avoiding API latency for simple operations like:
+- "list files" → `ls -la .`
+- "find python files" → `find . -name "*.py" -type f`
+- "count lines in main.py" → `wc -l main.py`
+- "git status" → `git status`
+- "ping google.com" → `ping -c 4 google.com`
+
+Falls back to LLM for complex or ambiguous requests.
+
+### Bonus 3: A2A Protocol
+
+Standardized agent-to-agent messaging via `AgentMessage` dataclass and `AgentBus`:
+
+```python
+# Sending a message between agents
+msg = create_request("orchestrator", "shell_agent", "generate_command",
+                     user_input="list files", task_description="List directory contents")
+response = await bus.send(msg)
+```
+
+Features: unique message IDs, request/response/error types, message logging, event listeners.
+
+### Bonus 4: AGENTS.md
+
+Place an `AGENTS.md` file in the project root to configure agents:
+
+```markdown
+## shell_agent
+- description: Converts natural language to shell commands
+- enabled: true
+- custom_rules:
+  - Prefer safe alternatives for destructive operations
+  - Use long flags for readability
+```
+
+Custom rules are injected into agent system prompts automatically.

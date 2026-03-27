@@ -4,6 +4,9 @@ import os
 import platform
 from . import llm_client
 from .safety import check_command
+from .local_nlp import try_local_conversion
+from .a2a_protocol import bus, AgentMessage
+from .agents_md import get_custom_rules
 
 SHELL_SYSTEM_PROMPT = """You are the Shell Agent. Your job is to convert natural language requests into safe, executable shell commands.
 
@@ -55,9 +58,21 @@ async def generate_command(task_description: str, user_input: str) -> dict:
     """Generate a shell command from natural language.
 
     Returns dict with: intent, command, reason, risk_level, safety_check
+    First tries local NLP (Bonus 2), falls back to LLM if no match.
     """
+    # Bonus 2: Try local conversion first (fast, no API call)
+    local_result = try_local_conversion(user_input)
+    if local_result is not None:
+        return local_result
+
     ctx = _get_context()
     system_msg = SHELL_SYSTEM_PROMPT.format(**ctx)
+
+    # Bonus 4: Inject custom rules from AGENTS.md
+    custom_rules = get_custom_rules("shell_agent")
+    if custom_rules:
+        rules_text = "\n".join(f"- {r}" for r in custom_rules)
+        system_msg += f"\n\n## Custom Rules (from AGENTS.md)\n{rules_text}"
 
     messages = [
         {"role": "system", "content": system_msg},
@@ -91,3 +106,19 @@ async def generate_command(task_description: str, user_input: str) -> dict:
         result["safety_check"] = {"level": "safe", "reasons": []}
 
     return result
+
+
+# --- A2A Protocol integration (Bonus 3) ---
+
+async def _a2a_generate(message: AgentMessage) -> dict:
+    """A2A handler: generate command via the bus."""
+    task = message.payload.get("task_description", "")
+    user_input = message.payload.get("user_input", "")
+    return await generate_command(task, user_input)
+
+
+def register_on_bus():
+    """Register shell agent on the A2A message bus."""
+    bus.register_agent("shell_agent", {
+        "generate_command": _a2a_generate,
+    })
