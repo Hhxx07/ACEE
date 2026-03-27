@@ -19,6 +19,7 @@ from . import orchestrator
 from . import shell_agent
 from . import tool_agent
 from . import llm_client
+from .a2a import A2ARuntime
 from .memory_agent import save_memory, search_memory, get_relevant_context
 from .tools import file_tools, system_tools, network_tools
 
@@ -84,6 +85,10 @@ class AgentCLI(App):
         super().__init__()
         self.conversation_history: list[dict] = []
         self._current_task: asyncio.Task | None = None
+        self._a2a_mode = os.getenv("ACEE_A2A_MODE", "off").strip().lower()
+        if self._a2a_mode not in {"off", "shadow", "on"}:
+            self._a2a_mode = "off"
+        self._a2a_runtime = A2ARuntime() if self._a2a_mode != "off" else None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -104,7 +109,8 @@ class AgentCLI(App):
             "• Type natural language to interact with AI agents\n"
             "• Prefix [bold green]/[/] for direct shell commands (e.g. [green]/ls -la[/])\n"
             "• [bold]Ctrl+C[/] to quit, [bold]Ctrl+L[/] to clear\n\n"
-            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent[/]",
+            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent[/]\n"
+            f"[dim]A2A Mode: {self._a2a_mode}[/]",
             title="🚀 Multi-Agent CLI",
             border_style="cyan",
         ))
@@ -193,14 +199,12 @@ class AgentCLI(App):
         sb.set_status("Analyzing intent...")
 
         # Get memory context
-        mem_ctx = get_relevant_context(user_input)
+        mem_ctx = await self._get_memory_context(user_input)
         if mem_ctx:
             output.write(Text(mem_ctx, style="dim italic"))
 
         # Classify intent
-        classification = await orchestrator.classify_intent(
-            user_input, self.conversation_history
-        )
+        classification = await self._classify_intent(user_input)
         intent = classification.get("intent", "direct_answer")
         reasoning = classification.get("reasoning", "")
         confidence = classification.get("confidence", 0)
@@ -246,13 +250,28 @@ class AgentCLI(App):
         sb.set_agent("Orchestrator")
         sb.set_status("Ready")
 
+    async def _get_memory_context(self, user_input: str) -> str:
+        if self._a2a_runtime:
+            return await self._a2a_runtime.get_relevant_context(user_input)
+        return get_relevant_context(user_input)
+
+    async def _classify_intent(self, user_input: str) -> dict:
+        if self._a2a_runtime:
+            return await self._a2a_runtime.classify_intent(
+                user_input, self.conversation_history
+            )
+        return await orchestrator.classify_intent(user_input, self.conversation_history)
+
     async def _dispatch_shell(self, user_input, classification, output, sb):
         """Dispatch to Shell Agent — Task 3."""
         sb.set_agent("Shell Agent")
         sb.set_status("Generating command...")
 
         task_desc = classification.get("task_description", user_input)
-        result = await shell_agent.generate_command(task_desc, user_input)
+        if self._a2a_runtime:
+            result = await self._a2a_runtime.generate_command(task_desc, user_input)
+        else:
+            result = await shell_agent.generate_command(task_desc, user_input)
 
         intent = result.get("intent", "refuse")
         command = result.get("command", "")
@@ -334,7 +353,10 @@ class AgentCLI(App):
         async def on_tool_output(text: str):
             output.write(Text(text.rstrip("\n"), style="dim white"))
 
-        result = await tool_agent.handle_task(task_desc, user_input, on_tool_output)
+        if self._a2a_runtime:
+            result = await self._a2a_runtime.handle_tool_task(task_desc, user_input, on_tool_output)
+        else:
+            result = await tool_agent.handle_task(task_desc, user_input, on_tool_output)
         if result:
             try:
                 output.write(Markdown(result))
