@@ -89,9 +89,9 @@ class AgentCLI(App):
     }
     #input-area {
         height: 3;
-        dock: bottom;
     }
-    Input {
+    #interaction-container {
+        height: auto;
         dock: bottom;
     }
     """
@@ -118,10 +118,10 @@ class AgentCLI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield RichLog(id="output-area", highlight=True, markup=True, wrap=True)
-        yield StatusBar(id="status-bar")
         yield Input(placeholder="Type a command or ask a question... (prefix / for direct shell)", id="input-area")
-        yield Footer()
+        yield StatusBar(id="status-bar")
         yield Container(id="interaction-container")
+        yield Footer()
 
     def on_mount(self):
         # Register all MCP tools
