@@ -148,7 +148,8 @@ class AgentCLI(App):
             "• Prefix [bold green]/[/] for direct shell commands (e.g. [green]/ls -la[/])\n"
             "• [bold]Tab[/] for auto-completion, [bold]Up/Down[/] for command history\n"
             "• [bold]Ctrl+C[/] to quit, [bold]Ctrl+L[/] to clear\n\n"
-            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent[/]",
+            "[dim]Agents: Orchestrator → Shell Agent | Tool Agent | Memory Agent[/]\n"
+            f"[dim]A2A Mode: {self._a2a_mode}[/]",
             title="🚀 Multi-Agent CLI",
             border_style="cyan",
         ))
