@@ -6,6 +6,9 @@ import platform
 import importlib
 from . import llm_client
 from .safety import check_command
+from .local_nlp import try_local_conversion
+from .a2a_protocol import bus, AgentMessage
+from .agents_md import get_custom_rules
 
 SHELL_SYSTEM_PROMPT = """You are the Shell Agent. Your job is to convert natural language requests into safe, executable shell commands.
 
