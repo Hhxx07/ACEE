@@ -3,6 +3,15 @@
 import json
 from . import llm_client
 from .tools.registry import list_tools, execute_tool, get_tool_permission
+from .tools.mcp_adaptor import MCPAdapter
+
+# Global MCP adapter instance (set by main.py)
+_mcp_adapter: MCPAdapter | None = None
+
+def set_mcp_adapter(adapter: MCPAdapter):
+    """Set the global MCP adapter instance."""
+    global _mcp_adapter
+    _mcp_adapter = adapter
 
 TOOL_SYSTEM_PROMPT = """You are the Tool Agent. You have access to a set of tools and must use them to fulfill the user's request.
 
@@ -19,7 +28,12 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
 
     Implements a ReAct loop: LLM picks a tool → execute → observe → repeat.
     """
-    tools = list_tools()
+    # Use MCP adapter if available, otherwise use local tools
+    if _mcp_adapter:
+        tools = _mcp_adapter.list_all_tools()
+    else:
+        tools = list_tools()
+    
     if not tools:
         return "[Tool Agent] No tools available."
 
@@ -31,14 +45,15 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
     all_output = []
 
     for iteration in range(MAX_ITERATIONS):
-        result = await llm_client.chat_function_call(messages, tools)
+        result = await llm_client.chat_function_call(messages, tools) #两种可能，一种是LLM
+
 
         # If LLM wants to call tools
         if result.get("tool_calls"):
             normalized_tool_calls = []
             for tc in result["tool_calls"]:
                 if isinstance(tc, dict):
-                    tc = tc.copy()
+                    tc = tc.copy() # 防止修改原始数据，浅拷贝，不会修改原始字典
                     tc["type"] = tc.get("type") or "function"
                 normalized_tool_calls.append(tc)
 
@@ -65,9 +80,17 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
                 elif perm == "ASK":
                     if on_output:
                         await on_output(f"⚠️  Tool '{func_name}' requires confirmation. Auto-allowing for now.\n")
-                    tool_result = await execute_tool(func_name, args)
+                    # Execute via MCP adapter or local
+                    if _mcp_adapter and "__" in func_name:
+                        tool_result = await _mcp_adapter.execute_tool(func_name, args)
+                    else:
+                        tool_result = await execute_tool(func_name, args)
                 else:
-                    tool_result = await execute_tool(func_name, args)
+                    # Execute via MCP adapter or local
+                    if _mcp_adapter and "__" in func_name:
+                        tool_result = await _mcp_adapter.execute_tool(func_name, args)
+                    else:
+                        tool_result = await execute_tool(func_name, args)
 
                 tool_result_str = str(tool_result)
                 if on_output:

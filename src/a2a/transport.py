@@ -38,7 +38,7 @@ class InProcessTransport:
                 state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.FAILED],
             )
 
-        try:
+        try: #try-except语句，防止程序崩溃
             response = await handler(request)
         except RECOVERABLE_EXCEPTIONS as exc:
             return A2AResponse(

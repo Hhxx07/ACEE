@@ -324,8 +324,9 @@ class AgentCLI(App):
 
         if intent == "shell_agent":
             await self._dispatch_shell(user_input, classification, output, sb)
-        elif intent == "tool_agent":
+        elif intent == "tool_agent": #大多数命令行都会被判定为tool_agent，所以可能看不到命令执行提示。
             await self._dispatch_tool(user_input, classification, output, sb)
+            #await self._dispatch_shell(user_input, classification, output, sb)
         elif intent == "clarification":
             # 强制改为 shell_agent 意图
             intent = "shell_agent"
@@ -379,11 +380,13 @@ class AgentCLI(App):
         reason = result.get("reason", "")
         risk = result.get("risk_level", "unknown")
         safety = result.get("safety_check", {})
+        
 
         if intent == "refuse" or safety.get("level") == "deny":
             output.write(Panel(
                 f"[bold red]BLOCKED[/]\n"
                 f"Command: [yellow]{command}[/]\n"
+                f"intent: {intent}\n"
                 f"Reason: {reason}\n"
                 f"Safety: {'; '.join(safety.get('reasons', []))}",
                 title="🛡️ Safety Block",
@@ -402,23 +405,34 @@ class AgentCLI(App):
             return
 
         # Show command info
-        risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk, "white")
+        risk_level = result.get("risk_level", "unknown")
+        risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk_level, "white")
         warn_reasons = safety.get("reasons", [])
 
-        if safety.get("level") == "warn" or risk in ("medium", "high"):
+        # If safety level is "warn", upgrade risk level to "medium"
+        if safety.get("level") == "warn":
+            risk_level = "medium"
+
+        if risk_level in ("medium", "high"):
             output.write(Panel(
                 f"Command: [bold]{command}[/]\n"
                 f"Reason: {reason}\n"
-                f"Risk: [{risk_color}]{risk}[/]\n"
+                f"intent: {intent}\n"
+                f"Risk: [{risk_color}]{risk_level}[/]\n"
                 f"Warnings: {'; '.join(warn_reasons) if warn_reasons else 'none'}",
                 title="⚠️ Command Requires Caution",
                 border_style="yellow",
             ))
         else:
-            output.write(Text(
-                f"🔧 {reason}\n$ {command}  [risk: {risk}]",
-                style="cyan",
-            ))
+            output.write(Panel(
+                f"Command: [bold]{command}[/]\n"
+                f"Reason: {reason}\n"
+                f"intent: {intent}\n"
+                f"Risk: [{risk_color}]{risk}[/]\n"
+                f"Warnings: {'; '.join(warn_reasons) if warn_reasons else 'none'}",
+                title="✔ Command Safely conducted",
+                border_style="green",
+            ))  
 
         # Execute
         sb.set_status(f"Running: {command[:40]}...")

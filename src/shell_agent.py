@@ -55,7 +55,7 @@ def _get_context() -> dict:
 
 def _resolve_shell_mode() -> str:
     """Read command generation mode from ACEE_SHELL_MODE."""
-    mode = os.getenv("ACEE_SHELL_MODE", "auto").strip().lower()
+    mode = os.getenv("ACEE_SHELL_MODE", "llm").strip().lower() #llm 线上llm生成命令，auto/offline 本地生成命令
     if mode not in {"auto", "offline", "llm"}:
         return "auto"
     return mode
