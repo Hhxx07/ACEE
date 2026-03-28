@@ -83,7 +83,6 @@ def _with_safety(result: dict) -> dict:
 
     return result
 
-
 def _run_offline_parser(task_description: str, user_input: str, context: dict) -> dict | None:
     """Safely Load and execute offline parser if available."""
     package = __package__ or "src"

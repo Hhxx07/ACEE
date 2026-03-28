@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from textual import on, work
+from textual import on, work,events
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, Horizontal
-from textual.widgets import Header, Footer, Input, RichLog, Static
+from textual.containers import Vertical, Horizontal, Container
+from textual.widgets import Header, Footer, Input, RichLog, Static, OptionList
+
 from textual.binding import Binding
 from textual.events import Key
 from rich.text import Text
@@ -126,12 +127,17 @@ class AgentCLI(App):
         yield StatusBar(id="status-bar")
         yield Input(placeholder="Type a command or ask a question... (prefix / for direct shell)", id="input-area")
         yield Footer()
+        yield Container(id="interaction-container")
 
     def on_mount(self):
         # Register all MCP tools
         file_tools.register_all()
         system_tools.register_all()
         network_tools.register_all()
+
+        #输入焦点对准input
+        input_widget=self.query_one("#input-area")
+        input_widget.focus()
 
         # Register agents on A2A bus (Bonus 3)
         orchestrator.register_on_bus()
@@ -297,6 +303,8 @@ class AgentCLI(App):
         await process_manager.run_command(command, on_output, on_done)
         sb.set_agent("Orchestrator")
         sb.set_status("Ready")
+    
+
 
     @work(thread=False)
     async def _handle_orchestrated(self, user_input: str):
@@ -330,9 +338,25 @@ class AgentCLI(App):
         elif intent == "tool_agent":
             await self._dispatch_tool(user_input, classification, output, sb)
         elif intent == "clarification":
+            """
+            这里会拦截下来，看不到后面的option的效果
             msg = classification.get("message", "Could you clarify what you mean?")
             output.write(Text(f"❓ {msg}", style="yellow"))
             self.conversation_history.append({"role": "assistant", "content": msg})
+            """
+            
+            # 强制改为 shell_agent 意图
+            intent = "shell_agent"
+            # 保留原始的用户输入作为任务描述
+            classification["task_description"] = user_input
+            await self._dispatch_shell(user_input, classification, output, sb)
+            """
+            message = classification.get("message", "Could you clarify what you mean?")
+            options = classification.get("clarification_options", [])
+            
+            # 调用新方法创建交互式澄清
+            await self._show_clarification_panel(message, options)
+            """
         else:
             # direct_answer
             msg = classification.get("message", "")
@@ -403,14 +427,20 @@ class AgentCLI(App):
             })
             return
 
-        if intent == "ask_clarification":
+        if intent == "ask_clarification": # 缺乏循环边界检测
             options = result.get("clarification_options", [])
+            """
             msg = f"❓ {reason}\n"
             if options:
                 for i, opt in enumerate(options, 1):
                     msg += f"  [{i}] {opt}\n"
             output.write(Text(msg.rstrip(), style="yellow"))
             self.conversation_history.append({"role": "assistant", "content": msg})
+            """
+            message = classification.get("message", "Could you clarify what you mean?")
+            #options = classification.get("clarification_options", [])
+            # 调用新方法创建交互式澄清
+            await self._show_clarification_panel(message, options)
             return
 
         # Show command info
@@ -479,3 +509,74 @@ class AgentCLI(App):
 
     def action_quit(self):
         self.exit()
+
+    async def _show_clarification_panel(self, question: str, options: list):
+        output = self.query_one("#output-area", RichLog)
+        interaction_container = self.query_one("#interaction-container", Container)
+
+        # 1. 渲染问题到日志区
+        output.write(Text(f"❓ {question}", style="yellow bold"))
+
+        # 2. 如果没有选项，直接返回
+        if not options:
+            return
+
+        # 3. 【关键修复】：在添加新组件前，先尝试移除旧的 OptionList
+        # 防止 ID 重复报错
+        try:
+            old_list = self.query_one("#clarification-list", OptionList)
+            await old_list.remove()
+        except Exception:
+            pass  # 如果找不到旧组件，说明是第一次，忽略错误
+
+        # 4. 创建新的 OptionList 组件
+        clarification_list = OptionList(*options, id="clarification-list")
+
+        # 5. 【关键逻辑】：将组件添加到 Container 中（而不是直接加到 Log 里）
+        await interaction_container.mount(clarification_list)
+
+        # 6. 自动聚焦
+        clarification_list.focus()
+    
+    async def on_option_list_option_selected(self, event: OptionList.OptionSelected):
+
+        if event.option_list.id == "clarification-list":
+            # 1. 获取用户选择的值
+            selected_value = event.option.prompt
+
+            # 2. 从界面上移除这个交互组件，保持界面整洁
+            await event.option_list.remove()
+
+            # 3. 将选中的值作为用户的"新输入"进行处理
+            # 这会触发新一轮的 _handle_orchestrated 循环
+            # @work 装饰器会处理异步执行，无需 await
+            self._handle_orchestrated(f"Selected: {selected_value}")
+
+
+    async def on_key(self, event: events.Key) -> None:
+        """监听键盘事件，处理 Esc 键关闭选项面板"""
+        if event.key == "escape":  # 检测 Esc 键
+            # 只在澄清面板存在时才处理
+            try:
+                clarification_list = self.query_one("#clarification-list", OptionList)
+                # 检查面板是否有焦点
+                if self.focused == clarification_list or self.query_one("#interaction-container").query(OptionList):
+                    await self._close_clarification_panel()
+                    # 停止事件传播，防止触发其他处理程序
+                    event.stop()
+            except Exception:
+                # 澄清面板不存在，忽略此事件
+                pass
+
+    async def _close_clarification_panel(self) -> None:
+        """关闭澄清面板（移除 OptionList）"""
+        try:
+            # 查询并移除 OptionList
+            clarification_list = self.query_one("#clarification-list", OptionList)
+            await clarification_list.remove()
+            # 在日志区输出一条消息，告知用户已取消
+            output = self.query_one("#output-area", RichLog)
+            output.write(Text("🚫 澄清面板已关闭", style="dim yellow"))
+        except Exception:
+            # 如果没有找到 OptionList，说明面板已经关闭或不存在，忽略错误
+            pass

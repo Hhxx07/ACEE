@@ -1,0 +1,17 @@
+
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch TUI",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}\\run.py",
+            "console": "externalTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        }
+    ]
+}
