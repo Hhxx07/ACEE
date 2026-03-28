@@ -65,6 +65,7 @@ def _with_safety(result: dict) -> dict:
     """Attach local safety verdict for command results."""
     command = result.get("command", "")
     if command:
+        #调用safety里面的函数完成安全性判断
         safety = check_command(command)
         result["safety_check"] = safety
 

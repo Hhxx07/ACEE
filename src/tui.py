@@ -57,7 +57,7 @@ class StatusBar(Static):
     def _update_text(self):
         cwd = os.getcwd()
         t = time.strftime("%H:%M:%S")
-        self.update(f" 🕐 {t}  |  📂 {cwd}  |  🤖 {self._agent}  |  {self._status}")
+        self.update(f"  {t}  |   {cwd}  |  Working:  {self._agent}  |  {self._status}")
 
     def set_agent(self, name: str):
         self._agent = name
@@ -222,6 +222,8 @@ class AgentCLI(App):
         self._tab_candidates = []
         self._tab_index = -1
 
+    # 按下 Enter 后的统一入口：清空输入框、维护历史记录，
+    # 然后按优先级分流到直接 Shell 命令、Memory 命令或 Orchestrator。
     @on(Input.Submitted)
     async def on_input_submitted(self, event: Input.Submitted):
         user_input = event.value.strip()
@@ -271,6 +273,7 @@ class AgentCLI(App):
 
         # Route through orchestrator
         self._handle_orchestrated(user_input)
+        
 
     @work(thread=False)
     async def _handle_shell_direct(self, command: str):
