@@ -12,15 +12,17 @@ RECOVERABLE_EXCEPTIONS = (RuntimeError, ValueError, TypeError, KeyError, OSError
 
 
 class InProcessTransport:
-    """Simple request/response transport that dispatches by agent name."""
+    """把任务按照AgentCard注册的名字分发给具体的agent"""
 
     def __init__(self):
         self._handlers: dict[str, A2AHandler] = {}
 
     def register(self, agent_name: str, handler: A2AHandler):
+        #注册需要分发的地址
         self._handlers[agent_name] = handler
 
     async def send(self, request: A2ARequest) -> A2AResponse:
+        #根据前面的注册信息分发内容
         handler = self._handlers.get(request.to_agent)
         if handler is None:
             return A2AResponse(

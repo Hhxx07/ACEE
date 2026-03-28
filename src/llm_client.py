@@ -10,38 +10,30 @@ load_dotenv()
 
 
 def _get_client() -> AsyncOpenAI:
+    #完成调用api的基本设置
     return AsyncOpenAI(
-        api_key=os.getenv("OPENAI_API_KEY", ""),
-        base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL"),
     )
 
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.getenv("OPENAI_MODEL")
 
 
-async def chat(messages: list[dict], temperature: float = 0.7) -> str:
-    """Non-streaming chat completion."""
-    client = _get_client()
-    try:
-        resp = await client.chat.completions.create(
-            model=MODEL, messages=messages, temperature=temperature
-        )
-        return resp.choices[0].message.content or ""
-    except Exception as e:
-        return f"[LLM Error] {e}"
-
-
-async def chat_stream(messages: list[dict], temperature: float = 0.7) -> AsyncIterator[str]:
-    """Streaming chat completion, yields token chunks."""
+async def chat(messages: list[dict], temperature: float = 0.7) -> AsyncIterator[str]:
+    """流式实时传送返回的信息"""
     client = _get_client()
     try:
         stream = await client.chat.completions.create(
-            model=MODEL, messages=messages, temperature=temperature, stream=True
+            model=MODEL, messages=messages, temperature=temperature,
+            stream=True
         )
+        #一旦服务器传来信息就处理
         async for chunk in stream:
             delta = chunk.choices[0].delta
             if delta.content:
-                yield delta.content
+                yield delta.content #用yield直接把信息抛给前段输出
+                #同时整个函数异步，可以一直保持其他地方（like ui）工作正常
     except Exception as e:
         yield f"\n[LLM Error] {e}"
 
@@ -49,6 +41,8 @@ async def chat_stream(messages: list[dict], temperature: float = 0.7) -> AsyncIt
 async def chat_json(messages: list[dict], temperature: float = 0.3) -> dict | None:
     """Chat completion expecting JSON output. Retries once on parse failure."""
     client = _get_client()
+
+    #在这里一共解析两次，第一次尝试失败的话（类型失败），就修正后再来一次。
     for attempt in range(2):
         try:
             resp = await client.chat.completions.create(

@@ -346,7 +346,7 @@ class AgentCLI(App):
                     {"role": "user", "content": user_input},
                 ]
                 full_resp = []
-                async for chunk in llm_client.chat_stream(messages):
+                async for chunk in llm_client.chat(messages):
                     full_resp.append(chunk)
                 resp_text = "".join(full_resp)
                 try:
