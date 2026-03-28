@@ -45,6 +45,7 @@ Analyze the user's input and respond with a JSON object:
 Respond with ONLY the JSON object, no other text."""
 
 
+#这里的几个函数让主控先知道现在的上下文是什么，作为后面执行命令和分发的基本信息
 def _get_git_status() -> str:
     """Try to get git status for context injection."""
     try:
@@ -74,7 +75,7 @@ def _get_context() -> dict:
 
     git_status = _get_git_status()
 
-    # Collect safe env vars for context
+    # 把环境变量中安全的内容放到context里面
     safe_env_keys = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "VIRTUAL_ENV", "CONDA_DEFAULT_ENV"]
     env_vars = {k: os.environ.get(k, "") for k in safe_env_keys if os.environ.get(k)}
     env_str = ", ".join(f"{k}={v}" for k, v in list(env_vars.items())[:10]) or "(none)"
@@ -92,9 +93,11 @@ def _get_context() -> dict:
 async def classify_intent(user_input: str, history: list[dict] | None = None) -> dict:
     """Classify user intent and return routing decision."""
     ctx = _get_context()
+    #凑成完整的提示词
     system_msg = SYSTEM_PROMPT.format(**ctx)
 
     messages = [{"role": "system", "content": system_msg}]
+    #有历史记录的话，把最后面的记录读进message
     if history:
         messages.extend(history[-6:])  # Last 3 exchanges for context
     messages.append({"role": "user", "content": user_input})
@@ -108,5 +111,3 @@ async def classify_intent(user_input: str, history: list[dict] | None = None) ->
             "message": "Sorry, I had trouble understanding. Could you rephrase?",
         }
     return result
-
-

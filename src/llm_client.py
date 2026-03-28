@@ -43,6 +43,7 @@ async def chat_json(messages: list[dict], temperature: float = 0.3) -> dict | No
     client = _get_client()
 
     #在这里一共解析两次，第一次尝试失败的话（类型失败），就修正后再来一次。
+    #目的是得到json格式的信息
     for attempt in range(2):
         try:
             resp = await client.chat.completions.create(
@@ -91,3 +92,5 @@ async def chat_function_call(messages: list[dict], tools: list[dict], temperatur
         }
     except Exception as e:
         return {"content": f"[LLM Error] {e}", "tool_calls": []}
+
+

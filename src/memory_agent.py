@@ -16,6 +16,7 @@ def _load() -> list[dict]:
 
 
 def _save(memories: list[dict]):
+    #把真正读写文本的函数定义在内部来让访问变得安全。
     os.makedirs(os.path.dirname(MEMORY_FILE) or ".", exist_ok=True)
     with open(MEMORY_FILE, "w", encoding="utf-8") as f:
         json.dump(memories, f, indent=2, ensure_ascii=False)
