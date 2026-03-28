@@ -65,6 +65,17 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
 ```
 
+Optional LLM tuning knobs:
+```
+OPENAI_TEMPERATURE_STREAM=0.7
+OPENAI_TEMPERATURE_JSON=0.3
+OPENAI_TEMPERATURE_TOOL=0.3
+OPENAI_JSON_RETRY_COUNT=2
+```
+
+- Temperature valid range is `0.0` to `2.0` (values outside range are clamped).
+- `OPENAI_JSON_RETRY_COUNT` minimum is `1`.
+
 For **DeepSeek**:
 ```
 OPENAI_API_KEY=sk-xxx

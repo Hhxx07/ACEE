@@ -19,13 +19,14 @@ from rich.panel import Panel
 from . import process_manager
 from . import llm_client
 from .a2a import A2ARuntime
-from .memory_agent import save_memory, search_memory
+from .memory_agent import search_memory
 from .tools import file_tools, system_tools, network_tools
 
 
 # Task 3.3: Common commands for Tab auto-completion
 COMPLETION_COMMANDS = [
     # Direct shell commands (/ prefix)
+    "/help", "/help shell", "/help memory",
     "/ls", "/ls -la", "/ls -R",
     "/pwd", "/cd", "/cat", "/head", "/tail",
     "/grep", "/find", "/wc", "/echo",
@@ -137,6 +138,7 @@ class AgentCLI(App):
             "[bold cyan]Welcome to Multi-Agent CLI![/]\n\n"
             "• Type natural language to interact with AI agents\n"
             "• Prefix [bold green]/[/] for direct shell commands (e.g. [green]/ls -la[/])\n"
+            "• Type [bold]/help[/] to view all available features\n"
             "• [bold]Tab[/] for auto-completion, [bold]Up/Down[/] for command history\n"
             "• [bold]Ctrl+C[/] to quit, [bold]Ctrl+L[/] to clear\n\n"
             "[dim]Agents: Orchestrator → Shell Agent | Tool Agent | Memory Agent[/]\n"
@@ -247,8 +249,15 @@ class AgentCLI(App):
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
 
+        # Built-in help command (handled locally, no shell/orchestrator call)
+        if user_input.lower().startswith("/help"):
+            await self._auto_save_user_input(user_input, source="help_command")
+            self._handle_help_command(user_input)
+            return
+
         # Check for direct shell command (/ prefix)
         if user_input.startswith("/"):
+            await self._auto_save_user_input(user_input, source="direct_shell")
             cmd = user_input[1:].strip()
             if cmd:
                 self._handle_shell_direct(cmd)
@@ -256,10 +265,19 @@ class AgentCLI(App):
 
         # Check for memory commands
         if user_input.lower().startswith("!memory"):
+            await self._auto_save_user_input(user_input, source="memory_command")
             parts = user_input.split(maxsplit=2)
             if len(parts) >= 3 and parts[1] == "save":
-                result = save_memory(parts[2])
-                output.write(Text(f"💾 {result}", style="dim"))
+                saved = await self._a2a_runtime.save_auto_memory(
+                    parts[2],
+                    source="memory_manual",
+                    extra_tags=["manual_note"],
+                    auto_tag=True,
+                )
+                if saved:
+                    output.write(Text(f"💾 Memory saved (id={saved.get('id')})", style="dim"))
+                else:
+                    output.write(Text("💾 Memory save failed", style="red"))
             elif len(parts) >= 3 and parts[1] == "search":
                 results = search_memory(parts[2])
                 if results:
@@ -273,6 +291,70 @@ class AgentCLI(App):
 
         # Route through orchestrator
         self._handle_orchestrated(user_input)
+
+    async def _auto_save_user_input(self, user_input: str, source: str, extra_tags: list[str] | None = None):
+        """Persist user input with offline auto-tags; silently ignore write failures."""
+        try:
+            await self._a2a_runtime.save_auto_memory(
+                user_input,
+                source=source,
+                extra_tags=extra_tags or [],
+                auto_tag=True,
+                metadata={"channel": "tui", "kind": "user_input"},
+            )
+        except Exception:
+            pass
+
+    def _handle_help_command(self, user_input: str):
+        """Render built-in help documentation in output panel."""
+        output = self.query_one("#output-area", RichLog)
+        sb = self.query_one("#status-bar", StatusBar)
+
+        topic = user_input[5:].strip().lower()
+        sb.set_agent("Help")
+        sb.set_status("Showing help")
+
+        topic_note = ""
+        if topic and topic not in {"all", "shell", "memory", "commands"}:
+            topic_note = (
+                f"[yellow]Unknown topic:[/] {topic}\n"
+                "[dim]Showing full help instead. Try: /help, /help shell, /help memory[/]\n\n"
+            )
+
+        help_text = (
+            "[bold cyan]Available Features[/]\n\n"
+            "[bold]1) Natural Language Orchestrator[/]\n"
+            "• Type normal questions/tasks and the system auto-routes to agents\n"
+            "• Example: [green]find all python files[/]\n\n"
+            "[bold]2) Direct Shell Mode[/]\n"
+            "• Prefix with [green]/[/] to run shell commands directly\n"
+            "• Examples: [green]/ls -la[/], [green]/pwd[/], [green]/git status[/]\n\n"
+            "[bold]3) Memory Commands[/]\n"
+            "• Save memory: [green]!memory save <text>[/]\n"
+            "• Search memory: [green]!memory search <query>[/]\n\n"
+            "[bold]4) Productivity Shortcuts[/]\n"
+            "• [bold]Tab[/]: command auto-completion\n"
+            "• [bold]Up/Down[/]: command history\n"
+            "• [bold]Ctrl+L[/]: clear output\n"
+            "• [bold]Ctrl+C[/]: quit app\n"
+            "• [bold]Esc[/]: close clarification panel\n\n"
+            "[bold]5) Safety Behavior[/]\n"
+            "• Risky shell commands may show warnings or be blocked\n"
+            "• The app reports command exit codes after execution\n\n"
+            "[bold]Quick Start[/]\n"
+            "• Try [green]/help[/] anytime to reopen this guide\n"
+            "• Try [green]/ls[/] for direct shell\n"
+            "• Try [green]!memory save my note[/] then [green]!memory search note[/]"
+        )
+
+        output.write(Panel(
+            f"{topic_note}{help_text}",
+            title="Help",
+            border_style="cyan",
+        ))
+
+        sb.set_agent("Orchestrator")
+        sb.set_status("Ready")
         
 
     @work(thread=False)
@@ -322,6 +404,12 @@ class AgentCLI(App):
             f"[Orchestrator] Intent: {intent} (confidence: {confidence:.0%}) — {reasoning}",
             style="dim cyan",
         ))
+
+        await self._auto_save_user_input(
+            user_input,
+            source="orchestrated_input",
+            extra_tags=[intent],
+        )
 
         self.conversation_history.append({"role": "user", "content": user_input})
 

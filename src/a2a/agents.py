@@ -6,7 +6,7 @@ from typing import Any
 
 from .models import A2ARequest, A2AResponse, AgentCard, ErrorEnvelope, TaskState
 from .. import orchestrator, shell_agent, tool_agent
-from ..memory_agent import get_relevant_context
+from ..memory_agent import get_relevant_context, save_memory_record
 
 
 RECOVERABLE_EXCEPTIONS = (
@@ -111,24 +111,52 @@ class MemoryA2AAgent:
     card = AgentCard(
         name="memory",
         description="Provides relevant memory context for a user input.",
-        capabilities=["get_relevant_context"],
+        capabilities=["get_relevant_context", "save_auto_memory"],
     )
 
     async def handle(self, request: A2ARequest) -> A2AResponse:
-        if request.action != "get_relevant_context":
+        try:
+            if request.action == "get_relevant_context":
+                user_input = str(request.payload.get("user_input", ""))
+                result = get_relevant_context(user_input)
+                return A2AResponse(
+                    request_id=request.request_id,
+                    task_id=request.task_id,
+                    from_agent=self.card.name,
+                    state=TaskState.COMPLETED,
+                    artifacts={"memory_context": result},
+                    state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.COMPLETED],
+                )
+
+            if request.action == "save_auto_memory":
+                content = str(request.payload.get("content", "")).strip()
+                if not content:
+                    raise ValueError("Memory content cannot be empty.")
+
+                tags = request.payload.get("tags")
+                extra_tags = request.payload.get("extra_tags")
+                source = str(request.payload.get("source", "manual"))
+                auto_tag = bool(request.payload.get("auto_tag", True))
+                metadata = request.payload.get("metadata")
+                record = save_memory_record(
+                    content,
+                    tags=tags if isinstance(tags, list) else None,
+                    auto_tag=auto_tag,
+                    source=source,
+                    extra_tags=extra_tags if isinstance(extra_tags, list) else None,
+                    metadata=metadata if isinstance(metadata, dict) else None,
+                )
+                return A2AResponse(
+                    request_id=request.request_id,
+                    task_id=request.task_id,
+                    from_agent=self.card.name,
+                    state=TaskState.COMPLETED,
+                    artifacts={"memory_record": record},
+                    state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.COMPLETED],
+                )
+
             return _unsupported_action(request, self.card)
 
-        try:
-            user_input = str(request.payload.get("user_input", ""))
-            result = get_relevant_context(user_input)
-            return A2AResponse(
-                request_id=request.request_id,
-                task_id=request.task_id,
-                from_agent=self.card.name,
-                state=TaskState.COMPLETED,
-                artifacts={"memory_context": result},
-                state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.COMPLETED],
-            )
         except RECOVERABLE_EXCEPTIONS as exc:
             return _agent_exception(request, self.card, exc)
 

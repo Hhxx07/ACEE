@@ -38,6 +38,34 @@ class A2ARuntime:
             return ""
         return str(response.artifacts.get("memory_context", ""))
 
+    async def save_auto_memory(
+        self,
+        content: str,
+        *,
+        source: str = "manual",
+        tags: list[str] | None = None,
+        extra_tags: list[str] | None = None,
+        metadata: dict | None = None,
+        auto_tag: bool = True,
+    ) -> dict:
+        response = await self._transport.send(
+            A2ARequest(
+                to_agent="memory",
+                action="save_auto_memory",
+                payload={
+                    "content": content,
+                    "source": source,
+                    "tags": tags or [],
+                    "extra_tags": extra_tags or [],
+                    "metadata": metadata or {},
+                    "auto_tag": auto_tag,
+                },
+            )
+        )
+        if self._is_failure_response(response):
+            return {}
+        return response.artifacts.get("memory_record", {})
+
     async def classify_intent(self, user_input: str, history: list[dict] | None = None) -> dict:
         response = await self._transport.send(
             A2ARequest(
