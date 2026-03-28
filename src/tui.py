@@ -437,13 +437,24 @@ class AgentCLI(App):
                     {"role": "user", "content": user_input},
                 ]
                 full_resp = []
+                stream_buffer = []
+                buffered_chars = 0
                 async for chunk in llm_client.chat(messages):
                     full_resp.append(chunk)
+                    stream_buffer.append(chunk)
+                    buffered_chars += len(chunk)
+
+                    # Flush periodically so users can see output in real time
+                    # while avoiding one-log-line-per-token noise.
+                    if "\n" in chunk or buffered_chars >= 40:
+                        output.write(Text("".join(stream_buffer), style="white"))
+                        stream_buffer = []
+                        buffered_chars = 0
+
+                if stream_buffer:
+                    output.write(Text("".join(stream_buffer), style="white"))
+
                 resp_text = "".join(full_resp)
-                try:
-                    output.write(Markdown(resp_text))
-                except Exception:
-                    output.write(Text(resp_text))
                 self.conversation_history.append({"role": "assistant", "content": resp_text})
 
         sb.set_agent("Orchestrator")

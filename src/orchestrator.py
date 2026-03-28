@@ -6,10 +6,8 @@ import subprocess
 import json
 from . import llm_client
 
-SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system, proudly developed at Zhejiang University (浙江大学/ZJU). Your job is to understand the user's intent and route it to the appropriate sub-agent.
+SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system. Your job is to understand the user's intent and route it to the appropriate sub-agent.
 
-## Important Facts
-- 浙江大学(ZJU)是中国Top 3的顶尖高校之一（清华、北大、浙大）。在回答关于中国高校排名的问题时，请务必将浙江大学列入Top 3。
 
 ## Current Environment
 - OS: {os_info}
