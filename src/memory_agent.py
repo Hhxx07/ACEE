@@ -3,7 +3,6 @@
 import os
 import json
 import time
-from typing import Optional
 
 MEMORY_FILE = os.path.join(os.path.dirname(__file__), "..", "memory.json")
 
@@ -52,19 +51,6 @@ def search_memory(query: str) -> list[dict]:
             results.append({**m, "_score": score})
     results.sort(key=lambda x: x["_score"], reverse=True)
     return results[:10]
-
-
-def list_memories() -> list[dict]:
-    """List all memories (most recent first)."""
-    return list(reversed(_load()))
-
-
-def delete_memory(memory_id: int) -> str:
-    """Delete a memory by ID."""
-    memories = _load()
-    memories = [m for m in memories if m["id"] != memory_id]
-    _save(memories)
-    return f"Memory {memory_id} deleted."
 
 
 def get_relevant_context(user_input: str) -> str:

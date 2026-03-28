@@ -102,5 +102,3 @@ class A2AResponse:
             self.state_history = [TaskState.CREATED, TaskState.RUNNING, self.state]
         elif self.state_history[-1] != self.state:
             self.state_history.append(self.state)
-
-TASK_STATES = TaskState.ALL

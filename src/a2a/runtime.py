@@ -1,4 +1,4 @@
-"""High-level A2A runtime facade for the ACEE app."""
+"""一个高层的分发函数"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from .transport import InProcessTransport
 
 
 class A2ARuntime:
-    """Facade that routes requests to in-process A2A agent adapters."""
+    """在这个总线上统一分发各种任务 -- 其他的接口变得简单"""
 
     def __init__(self):
         self._transport = InProcessTransport()

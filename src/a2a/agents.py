@@ -20,6 +20,11 @@ RECOVERABLE_EXCEPTIONS = (
 )
 
 
+'''
+给每个agent写agnetcard（介绍名片）和调用函数当做接口
+相当于在这里注册agent库
+'''
+
 class OrchestratorA2AAgent:
     card = AgentCard(
         name="orchestrator",

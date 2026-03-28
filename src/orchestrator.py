@@ -5,7 +5,6 @@ import platform
 import subprocess
 import json
 from . import llm_client
-from .a2a_protocol import bus, create_request, AgentMessage
 
 SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system, proudly developed at Zhejiang University (浙江大学/ZJU). Your job is to understand the user's intent and route it to the appropriate sub-agent.
 
@@ -111,18 +110,3 @@ async def classify_intent(user_input: str, history: list[dict] | None = None) ->
     return result
 
 
-# --- A2A Protocol integration (Bonus 3) ---
-
-async def _a2a_classify(message: AgentMessage) -> dict:
-    """A2A handler: classify intent via the bus."""
-    user_input = message.payload.get("user_input", "")
-    history = message.payload.get("history", [])
-    result = await classify_intent(user_input, history)
-    return result
-
-
-def register_on_bus():
-    """Register orchestrator on the A2A message bus."""
-    bus.register_agent("orchestrator", {
-        "classify_intent": _a2a_classify,
-    })

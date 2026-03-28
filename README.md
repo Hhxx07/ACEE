@@ -35,8 +35,8 @@ Engine     (File/System/Network)
 - **Tool Agent**: MCP-style tools with LLM function calling and ReAct loop
 - **Permission System**: Three-tier (ALLOW / ASK / DENY) per tool
 - **Memory Agent**: Persistent cross-session memory (JSON-based)
-- **Local NLP** (Bonus 2): Keyword-based NL→command conversion without LLM for common operations
-- **A2A Protocol** (Bonus 3): Standardized agent-to-agent messaging with message bus
+- **Offline Shell Parser** (Bonus 2): Regex + jieba based local NL→command parsing with risk scoring
+- **A2A Runtime** (Bonus 3): In-process structured request/response routing via `src/a2a`
 - **AGENTS.md** (Bonus 4): Dynamic agent discovery and configuration via config file
 - **Tab Completion** (Task 3.3): Auto-complete commands and file names with Tab key
 - **Command History**: Navigate previous commands with Up/Down arrows
@@ -56,11 +56,7 @@ pip install -r requirements.txt
 
 ### Configuration
 
-Copy `.env.example` to `.env` and fill in your API credentials:
-
-```bash
-cp .env.example .env
-```
+Create a `.env` file in the project root and fill in your API credentials:
 
 Edit `.env`:
 ```
@@ -117,11 +113,10 @@ Configure with `ACEE_SHELL_MODE`:
 ## Project Structure
 
 ```
-assignment_A/
+ACEE/
 ├── run.py                  # Entry point
 ├── requirements.txt
 ├── .env                    # API keys (not committed)
-├── .env.example
 ├── README.md
 ├── memory.json             # Persistent memory store
 └── src/
@@ -134,9 +129,8 @@ assignment_A/
     ├── safety.py           # Task 3.2: Safety rule engine
     ├── tool_agent.py       # Task 4.4: Tool Agent + ReAct
     ├── memory_agent.py     # Bonus 1: Memory
-    ├── local_nlp.py        # Bonus 2: Local NL→command (no LLM)
-    ├── a2a_protocol.py     # Bonus 3: Agent-to-Agent protocol
-    ├── agents_md.py        # Bonus 4: AGENTS.md loader
+    ├── offline_shell_parser.py # Bonus 2: Local NL→command parser
+    ├── a2a/                # Bonus 3: A2A runtime/models/transport
     └── tools/
         ├── registry.py     # Task 4.1: MCP-style registry
         ├── file_tools.py   # Task 4.2: File operations
@@ -154,41 +148,26 @@ assignment_A/
 
 ## Bonus Features
 
-### Bonus 2: Local NLP (No LLM)
+### Bonus 2: Offline Shell Parser
 
-Common natural language patterns are converted to shell commands locally using keyword matching, avoiding API latency for simple operations like:
-- "list files" → `ls -la .`
-- "find python files" → `find . -name "*.py" -type f`
-- "count lines in main.py" → `wc -l main.py`
-- "git status" → `git status`
-- "ping google.com" → `ping -c 4 google.com`
+`src/offline_shell_parser.py` provides local rule-based parsing for shell tasks.
 
-Falls back to LLM for complex or ambiguous requests.
+- Uses regex + optional `jieba` tokenization for Chinese-first intent parsing.
+- Supports structured safety metadata (`risk_level`, `risk_score`, `risk_reasons`).
+- Works with `ACEE_SHELL_MODE` in `auto` / `offline` / `llm` modes.
 
-### Bonus 3: A2A Protocol
+### Bonus 3: A2A Runtime
 
-Standardized agent-to-agent messaging via `AgentMessage` dataclass and `AgentBus`:
+The A2A layer is implemented under `src/a2a` with structured envelopes and transport:
+
+- `A2ARequest` / `A2AResponse` / `TaskState` in `src/a2a/models.py`
+- `InProcessTransport` in `src/a2a/transport.py`
+- `A2ARuntime` facade in `src/a2a/runtime.py`
 
 ```python
-# Sending a message between agents
-msg = create_request("orchestrator", "shell_agent", "generate_command",
-                     user_input="list files", task_description="List directory contents")
-response = await bus.send(msg)
+from src.a2a import A2ARuntime
+
+runtime = A2ARuntime()
+classification = await runtime.classify_intent("list files", history=[])
 ```
 
-Features: unique message IDs, request/response/error types, message logging, event listeners.
-
-### Bonus 4: AGENTS.md
-
-Place an `AGENTS.md` file in the project root to configure agents:
-
-```markdown
-## shell_agent
-- description: Converts natural language to shell commands
-- enabled: true
-- custom_rules:
-  - Prefer safe alternatives for destructive operations
-  - Use long flags for readability
-```
-
-Custom rules are injected into agent system prompts automatically.

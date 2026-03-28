@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from textual import on, work,events
+from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, Horizontal, Container
+from textual.containers import Container
 from textual.widgets import Header, Footer, Input, RichLog, Static, OptionList
 
 from textual.binding import Binding
@@ -17,14 +17,10 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from . import process_manager
-from . import orchestrator
-from . import shell_agent
-from . import tool_agent
 from . import llm_client
 from .a2a import A2ARuntime
-from .memory_agent import save_memory, search_memory, get_relevant_context
+from .memory_agent import save_memory, search_memory
 from .tools import file_tools, system_tools, network_tools
-from .agents_md import load_agents_md
 
 
 # Task 3.3: Common commands for Tab auto-completion
@@ -110,10 +106,7 @@ class AgentCLI(App):
         super().__init__()
         self.conversation_history: list[dict] = []
         self._current_task: asyncio.Task | None = None
-        self._a2a_mode = os.getenv("ACEE_A2A_MODE", "off").strip().lower()
-        if self._a2a_mode not in {"off", "shadow", "on"}:
-            self._a2a_mode = "off"
-        self._a2a_runtime = A2ARuntime() if self._a2a_mode != "off" else None
+        self._a2a_runtime = A2ARuntime()
         # Task 3.3 / 进阶: Command history
         self._command_history: list[str] = []
         self._history_index: int = -1
@@ -139,14 +132,6 @@ class AgentCLI(App):
         input_widget=self.query_one("#input-area")
         input_widget.focus()
 
-        # Register agents on A2A bus (Bonus 3)
-        orchestrator.register_on_bus()
-        shell_agent.register_on_bus()
-        tool_agent.register_on_bus()
-
-        # Load AGENTS.md if present (Bonus 4)
-        load_agents_md()
-
         output = self.query_one("#output-area", RichLog)
         output.write(Panel(
             "[bold cyan]Welcome to Multi-Agent CLI![/]\n\n"
@@ -155,8 +140,8 @@ class AgentCLI(App):
             "• [bold]Tab[/] for auto-completion, [bold]Up/Down[/] for command history\n"
             "• [bold]Ctrl+C[/] to quit, [bold]Ctrl+L[/] to clear\n\n"
             "[dim]Agents: Orchestrator → Shell Agent | Tool Agent | Memory Agent[/]\n"
-            f"[dim]A2A Mode: {self._a2a_mode}[/]",
-            title="🚀 Multi-Agent CLI",
+            "[dim]A2A Mode: on[/]",
+            title="ACEE-Multi-Agent CLI",
             border_style="cyan",
         ))
         self._update_status_time()
@@ -172,6 +157,10 @@ class AgentCLI(App):
 
     def on_key(self, event: Key):
         """Handle key events for command history (Up/Down) and Tab completion."""
+        if event.key == "escape":
+            self._close_clarification_panel_sync(event)
+            return
+
         input_widget = self.query_one("#input-area", Input)
 
         if event.key == "up":
@@ -338,25 +327,11 @@ class AgentCLI(App):
         elif intent == "tool_agent":
             await self._dispatch_tool(user_input, classification, output, sb)
         elif intent == "clarification":
-            """
-            这里会拦截下来，看不到后面的option的效果
-            msg = classification.get("message", "Could you clarify what you mean?")
-            output.write(Text(f"❓ {msg}", style="yellow"))
-            self.conversation_history.append({"role": "assistant", "content": msg})
-            """
-            
             # 强制改为 shell_agent 意图
             intent = "shell_agent"
             # 保留原始的用户输入作为任务描述
             classification["task_description"] = user_input
             await self._dispatch_shell(user_input, classification, output, sb)
-            """
-            message = classification.get("message", "Could you clarify what you mean?")
-            options = classification.get("clarification_options", [])
-            
-            # 调用新方法创建交互式澄清
-            await self._show_clarification_panel(message, options)
-            """
         else:
             # direct_answer
             msg = classification.get("message", "")
@@ -384,16 +359,12 @@ class AgentCLI(App):
         sb.set_status("Ready")
 
     async def _get_memory_context(self, user_input: str) -> str:
-        if self._a2a_runtime:
-            return await self._a2a_runtime.get_relevant_context(user_input)
-        return get_relevant_context(user_input)
+        return await self._a2a_runtime.get_relevant_context(user_input)
 
     async def _classify_intent(self, user_input: str) -> dict:
-        if self._a2a_runtime:
-            return await self._a2a_runtime.classify_intent(
-                user_input, self.conversation_history
-            )
-        return await orchestrator.classify_intent(user_input, self.conversation_history)
+        return await self._a2a_runtime.classify_intent(
+            user_input, self.conversation_history
+        )
 
     async def _dispatch_shell(self, user_input, classification, output, sb):
         """Dispatch to Shell Agent — Task 3."""
@@ -401,10 +372,7 @@ class AgentCLI(App):
         sb.set_status("Generating command...")
 
         task_desc = classification.get("task_description", user_input)
-        if self._a2a_runtime:
-            result = await self._a2a_runtime.generate_command(task_desc, user_input)
-        else:
-            result = await shell_agent.generate_command(task_desc, user_input)
+        result = await self._a2a_runtime.generate_command(task_desc, user_input)
 
         intent = result.get("intent", "refuse")
         command = result.get("command", "")
@@ -429,17 +397,7 @@ class AgentCLI(App):
 
         if intent == "ask_clarification": # 缺乏循环边界检测
             options = result.get("clarification_options", [])
-            """
-            msg = f"❓ {reason}\n"
-            if options:
-                for i, opt in enumerate(options, 1):
-                    msg += f"  [{i}] {opt}\n"
-            output.write(Text(msg.rstrip(), style="yellow"))
-            self.conversation_history.append({"role": "assistant", "content": msg})
-            """
             message = classification.get("message", "Could you clarify what you mean?")
-            #options = classification.get("clarification_options", [])
-            # 调用新方法创建交互式澄清
             await self._show_clarification_panel(message, options)
             return
 
@@ -492,10 +450,7 @@ class AgentCLI(App):
         async def on_tool_output(text: str):
             output.write(Text(text.rstrip("\n"), style="dim white"))
 
-        if self._a2a_runtime:
-            result = await self._a2a_runtime.handle_tool_task(task_desc, user_input, on_tool_output)
-        else:
-            result = await tool_agent.handle_task(task_desc, user_input, on_tool_output)
+        result = await self._a2a_runtime.handle_tool_task(task_desc, user_input, on_tool_output)
         if result:
             try:
                 output.write(Markdown(result))
@@ -553,20 +508,15 @@ class AgentCLI(App):
             self._handle_orchestrated(f"Selected: {selected_value}")
 
 
-    async def on_key(self, event: events.Key) -> None:
-        """监听键盘事件，处理 Esc 键关闭选项面板"""
-        if event.key == "escape":  # 检测 Esc 键
-            # 只在澄清面板存在时才处理
-            try:
-                clarification_list = self.query_one("#clarification-list", OptionList)
-                # 检查面板是否有焦点
-                if self.focused == clarification_list or self.query_one("#interaction-container").query(OptionList):
-                    await self._close_clarification_panel()
-                    # 停止事件传播，防止触发其他处理程序
-                    event.stop()
-            except Exception:
-                # 澄清面板不存在，忽略此事件
-                pass
+    def _close_clarification_panel_sync(self, event: Key) -> None:
+        """Close clarification panel on ESC without defining a duplicate on_key handler."""
+        try:
+            clarification_list = self.query_one("#clarification-list", OptionList)
+            if self.focused == clarification_list or self.query_one("#interaction-container").query(OptionList):
+                self.call_later(self._close_clarification_panel)
+                event.stop()
+        except Exception:
+            pass
 
     async def _close_clarification_panel(self) -> None:
         """关闭澄清面板（移除 OptionList）"""

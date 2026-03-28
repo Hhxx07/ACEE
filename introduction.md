@@ -4,10 +4,7 @@
 
 ACEE is a terminal-based multi-agent system. It accepts natural language input, decides intent, dispatches to specialized agents, executes actions, and streams results back to the user.
 
-Current architecture supports two invocation styles:
-
-1. Legacy direct function calls between modules.
-2. In-process A2A-style protocol invocation via adapters and transport.
+Current architecture uses a single orchestrated runtime path based on in-process A2A adapters and transport.
 
 ## 2. Entry and Startup
 
@@ -208,17 +205,16 @@ A2A code lives in [src/a2a/__init__.py](src/a2a/__init__.py), [src/a2a/models.py
 5. Adapter agents for orchestrator/shell/tool/memory.
 6. Runtime facade used by TUI.
 
-### 5.2 A2A Mode Switch in TUI
+### 5.2 A2A Routing in TUI
 
-In [src/tui.py](src/tui.py), mode is controlled by:
-
-1. `ACEE_A2A_MODE=off|shadow|on`
+In [src/tui.py](src/tui.py), orchestrated NL requests are routed through `A2ARuntime` by default.
 
 Current behavior:
 
-1. `off`: legacy direct calls.
-2. `on`: route through `A2ARuntime`.
-3. `shadow`: currently same behavior as `on` (no dual-run diff yet).
+1. Intent classification uses runtime -> orchestrator adapter.
+2. Shell tasks use runtime -> shell adapter.
+3. Tool tasks use runtime -> tool adapter.
+4. Memory context uses runtime -> memory adapter.
 
 ## 6. Configuration Summary
 
@@ -228,7 +224,6 @@ Primary environment variables:
 2. `OPENAI_BASE_URL`
 3. `OPENAI_MODEL`
 4. `ACEE_SHELL_MODE`
-5. `ACEE_A2A_MODE`
 
 ## 7. Data and State
 
@@ -239,7 +234,7 @@ Persistent state:
 In-memory runtime state:
 
 1. TUI conversation history.
-2. Current A2A runtime instance when enabled.
+2. Current A2A runtime instance.
 3. Tool registry and permission tables.
 
 ## 8. Safety and Risk Boundaries
@@ -251,10 +246,9 @@ In-memory runtime state:
 
 ## 9. Current Gaps and Technical Debt
 
-1. `ACEE_A2A_MODE=shadow` has no dedicated shadow comparison pipeline yet.
-2. Direct shell mode bypasses safety engine.
-3. Test directory exists but currently has no test files.
-4. `a2a-sdk` is listed in requirements but not imported in source today.
+1. Direct shell mode bypasses safety engine.
+2. Test directory exists but currently has no test files.
+3. `a2a-sdk` is listed in requirements but not imported in source today.
 
 ## 10. How to Extend
 
@@ -284,6 +278,6 @@ Think of ACEE as:
 1. TUI orchestrator front-end.
 2. LLM-guided intent and execution engine.
 3. Safety and permission guardrails.
-4. Optional protocolized A2A invocation layer for future distributed evolution.
+4. In-process protocolized A2A invocation layer that can evolve toward distributed patterns.
 
 This combination makes the project usable as a CLI assistant now, while preserving a migration path toward stricter agent-to-agent protocol architecture.

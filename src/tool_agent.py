@@ -3,7 +3,6 @@
 import json
 from . import llm_client
 from .tools.registry import list_tools, execute_tool, get_tool_permission
-from .a2a_protocol import bus, AgentMessage
 
 TOOL_SYSTEM_PROMPT = """You are the Tool Agent. You have access to a set of tools and must use them to fulfill the user's request.
 
@@ -91,19 +90,3 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
         return "[Tool Agent] No response generated."
     return "\n".join(all_output)
 
-
-# --- A2A Protocol integration (Bonus 3) ---
-
-async def _a2a_handle(message: AgentMessage) -> dict:
-    """A2A handler: handle tool task via the bus."""
-    task = message.payload.get("task_description", "")
-    user_input = message.payload.get("user_input", "")
-    result = await handle_task(task, user_input)
-    return {"result": result}
-
-
-def register_on_bus():
-    """Register tool agent on the A2A message bus."""
-    bus.register_agent("tool_agent", {
-        "handle_task": _a2a_handle,
-    })
