@@ -81,6 +81,16 @@ class AgentCLI(App):
         border: solid $primary;
         overflow-y: auto;
     }
+    #stream-container {
+        height: auto;
+    }
+    #stream-preview {
+        height: auto;
+        max-height: 12;
+        border: round $accent;
+        padding: 0 1;
+        overflow-y: auto;
+    }
     #status-bar {
         height: 1;
         background: $boost;
@@ -118,6 +128,7 @@ class AgentCLI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield RichLog(id="output-area", highlight=True, markup=True, wrap=True)
+        yield Container(id="stream-container")
         yield Input(placeholder="Type a command or ask a question... (prefix / for direct shell)", id="input-area")
         yield StatusBar(id="status-bar")
         yield Container(id="interaction-container")
@@ -425,37 +436,43 @@ class AgentCLI(App):
             await self._dispatch_shell(user_input, classification, output, sb)
         else:
             # direct_answer
-            msg = classification.get("message", "")
-            if msg:
-                output.write(Text(f"💬 {msg}", style="white"))
-                self.conversation_history.append({"role": "assistant", "content": msg})
-            else:
-                # Fallback: stream a response
-                sb.set_status("Generating response...")
-                messages = [
-                    {"role": "system", "content": "You are a helpful assistant. Answer concisely."},
-                    {"role": "user", "content": user_input},
-                ]
-                full_resp = []
-                stream_buffer = []
-                buffered_chars = 0
+            sb.set_status("Generating response...")
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant. Answer concisely."},
+                {"role": "user", "content": user_input},
+            ]
+            full_resp = []
+            buffered_chars = 0
+            last_render_at = time.monotonic()
+            preview = await self._ensure_stream_preview()
+
+            try:
                 async for chunk in llm_client.chat(messages):
                     full_resp.append(chunk)
-                    stream_buffer.append(chunk)
                     buffered_chars += len(chunk)
+                    now = time.monotonic()
 
-                    # Flush periodically so users can see output in real time
-                    # while avoiding one-log-line-per-token noise.
-                    if "\n" in chunk or buffered_chars >= 40:
-                        output.write(Text("".join(stream_buffer), style="white"))
-                        stream_buffer = []
+                    should_render = (
+                        "\n" in chunk
+                        or buffered_chars >= 80
+                        or (now - last_render_at) >= 0.12
+                    )
+                    if should_render:
+                        self._render_stream_preview(preview, "".join(full_resp))
                         buffered_chars = 0
-
-                if stream_buffer:
-                    output.write(Text("".join(stream_buffer), style="white"))
+                        last_render_at = now
 
                 resp_text = "".join(full_resp)
-                self.conversation_history.append({"role": "assistant", "content": resp_text})
+                if resp_text:
+                    self._render_stream_preview(preview, resp_text)
+                    try:
+                        output.write(Markdown(resp_text))
+                    except Exception:
+                        output.write(Text(resp_text))
+            finally:
+                await self._remove_stream_preview()
+
+            self.conversation_history.append({"role": "assistant", "content": resp_text})
 
         sb.set_agent("Orchestrator")
         sb.set_status("Ready")
@@ -566,6 +583,33 @@ class AgentCLI(App):
 
     def action_quit(self):
         self.exit()
+
+    async def _ensure_stream_preview(self) -> Static:
+        stream_container = self.query_one("#stream-container", Container)
+        try:
+            return self.query_one("#stream-preview", Static)
+        except Exception:
+            preview = Static("", id="stream-preview")
+            await stream_container.mount(preview)
+            return preview
+
+    @staticmethod
+    def _normalize_stream_markdown(text: str) -> str:
+        normalized = text
+        # During streaming, temporarily close unbalanced code fences for stable rendering.
+        if normalized.count("```") % 2 == 1:
+            normalized += "\n```"
+        return normalized
+
+    def _render_stream_preview(self, preview: Static, text: str) -> None:
+        preview.update(Markdown(self._normalize_stream_markdown(text)))
+
+    async def _remove_stream_preview(self) -> None:
+        try:
+            preview = self.query_one("#stream-preview", Static)
+            await preview.remove()
+        except Exception:
+            pass
 
     async def _show_clarification_panel(self, question: str, options: list):
         output = self.query_one("#output-area", RichLog)
