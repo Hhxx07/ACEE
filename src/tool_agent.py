@@ -73,6 +73,10 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
 
                 # Check permission
                 perm = get_tool_permission(func_name)
+                if _mcp_adapter and "__" in func_name:
+                    # MCP工具权限检查
+                    perm = _mcp_adapter.get_mcp_tool_permission(func_name)
+
                 if perm == "DENY":
                     tool_result = f"[Permission Denied] Tool '{func_name}' is blocked."
                     if on_output:

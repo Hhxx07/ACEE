@@ -17,9 +17,9 @@ class MCPClient:
     
     def __init__(self, config: MCPServerConfig):
         self.config = config
-        self.process: Optional[asyncio.subprocess.Process] = None
+        self.process: Optional[asyncio.subprocess.Process] = None #异步子进程对象，初始为NONE，在start()中被赋值
         self._request_id = 0
-        self._pending_requests: Dict[int, asyncio.Future] = {}
+        self._pending_requests: Dict[int, asyncio.Future] = {} #处理异步，相应匹配
     
     async def start(self):
         """启动 MCP server 子进程"""

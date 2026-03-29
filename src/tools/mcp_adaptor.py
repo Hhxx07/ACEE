@@ -17,6 +17,23 @@ system_tools.register_all()
 class MCPAdapter:
     """管理 MCP servers 连接和工具转换"""
     
+    # MCP工具权限配置
+    MCP_TOOL_PERMISSIONS = {
+        # 文件系统工具权限
+        "filesystem__read_file": "ALLOW",
+        "filesystem__write_file": "ASK",
+        "filesystem__delete_file": "DENY",
+        "filesystem__list_directory": "ALLOW",
+        "filesystem__move_file": "ASK",
+        "filesystem__create_directory": "ASK",
+        
+        # 搜索工具权限
+        "brave-search__search": "ALLOW",
+        
+        # 默认权限: 未列出的MCP工具默认为ASK
+        "__default__": "ASK"
+    }
+    
     def __init__(self):
         self._clients: Dict[str, subprocess.Popen] = {}
         self._tools_cache: Dict[str, List[Dict]] = {}
@@ -32,12 +49,12 @@ class MCPAdapter:
             if is_windows:
                 # Windows 下使用 shell=True 来支持 npx 命令
                 client = subprocess.Popen(
-                    ' '.join(cmd),
-                    stdin=subprocess.PIPE,
+                    ' '.join(cmd), # 要执行的命令
+                    stdin=subprocess.PIPE, 
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    encoding='utf-8',
+                    encoding='utf-8', # python默认gbk，这里要改掉，不然会出错
                     shell=True
                 )
             else:
@@ -195,3 +212,14 @@ class MCPAdapter:
             client.wait()
         self._clients.clear()
         self._tools_cache.clear()
+    
+    def get_mcp_tool_permission(self, tool_name: str) -> str:
+        """获取MCP工具的权限级别"""
+        return self.MCP_TOOL_PERMISSIONS.get(tool_name, self.MCP_TOOL_PERMISSIONS["__default__"])
+    
+    def set_mcp_tool_permission(self, tool_name: str, permission: str):
+        """设置MCP工具的权限级别"""
+        if permission in ["ALLOW", "ASK", "DENY"]:
+            self.MCP_TOOL_PERMISSIONS[tool_name] = permission
+        else:
+            raise ValueError(f"Invalid permission level: {permission}")
