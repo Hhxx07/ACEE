@@ -95,12 +95,12 @@ def _detect_intent(text: str, tokens: list[str]) -> tuple[str | None, float]:
     ]
 
     for intent, keywords, confidence in rules:
-        if any(kw in text for kw in keywords) or any(kw in joined for kw in keywords):
+        if any(kw in text for kw in keywords) or any(kw in joined for kw in keywords): #这里似乎有点问题，match到的是第一条匹配上的，可能不能实现多条命令组合。但考虑是离线的，似乎也不用实现那么多功能
             return intent, confidence
     return None, 0.0
 
 
-def _score_risk(
+def _score_risk( #评估命令的危险程度
     text: str,
     intent: str,
     target: str | None,

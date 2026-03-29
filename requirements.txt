@@ -5,3 +5,6 @@ httpx>=0.25.0
 rich>=13.0.0
 jieba>=0.42.1
 a2a-sdk>=0.3.25
+
+node.js >=18.0
+npm>=10.0

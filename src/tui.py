@@ -204,8 +204,25 @@ class AgentCLI(App):
 
     def on_key(self, event: Key):
         """Handle key events for command history (Up/Down) and Tab completion."""
+        # ESC 键关闭 OptionList
         if event.key == "escape":
             self._close_clarification_panel_sync(event)
+            return
+
+        # 检查 OptionList 是否显示
+        try:
+            clarification_list = self.query_one("#clarification-list", OptionList)
+            option_list_visible = clarification_list.is_mounted
+        except Exception:
+            option_list_visible = False
+
+        # 如果 OptionList 显示，让 OptionList 自己处理上下键
+        if option_list_visible:
+            if event.key in ("up", "down", "enter"):
+                # 不阻止默认行为，让 OptionList 自己处理
+                return
+            # 其他键可能需要阻止，避免干扰
+            event.stop()
             return
 
         input_widget = self.query_one("#input-area", Input)
@@ -463,8 +480,9 @@ class AgentCLI(App):
 
         if intent == "shell_agent":
             await self._dispatch_shell(user_input, classification, output, sb)
-        elif intent == "tool_agent":
+        elif intent == "tool_agent": #大多数命令行都会被判定为tool_agent，所以可能看不到命令执行提示。
             await self._dispatch_tool(user_input, classification, output, sb)
+            #await self._dispatch_shell(user_input, classification, output, sb)
         elif intent == "clarification":
             # 强制改为 shell_agent 意图
             intent = "shell_agent"
@@ -537,11 +555,13 @@ class AgentCLI(App):
         reason = result.get("reason", "")
         risk = result.get("risk_level", "unknown")
         safety = result.get("safety_check", {})
+        
 
         if intent == "refuse" or safety.get("level") == "deny":
             output.write(Panel(
                 f"[bold red]BLOCKED[/]\n"
                 f"Command: [yellow]{command}[/]\n"
+                f"intent: {intent}\n"
                 f"Reason: {reason}\n"
                 f"Safety: {'; '.join(safety.get('reasons', []))}",
                 title="🛡️ Safety Block",
@@ -560,23 +580,34 @@ class AgentCLI(App):
             return
 
         # Show command info
-        risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk, "white")
+        risk_level = result.get("risk_level", "unknown")
+        risk_color = {"low": "green", "medium": "yellow", "high": "red"}.get(risk_level, "white")
         warn_reasons = safety.get("reasons", [])
 
-        if safety.get("level") == "warn" or risk in ("medium", "high"):
+        # If safety level is "warn", upgrade risk level to "medium"
+        if safety.get("level") == "warn":
+            risk_level = "medium"
+
+        if risk_level in ("medium", "high"):
             output.write(Panel(
                 f"Command: [bold]{command}[/]\n"
                 f"Reason: {reason}\n"
-                f"Risk: [{risk_color}]{risk}[/]\n"
+                f"intent: {intent}\n"
+                f"Risk: [{risk_color}]{risk_level}[/]\n"
                 f"Warnings: {'; '.join(warn_reasons) if warn_reasons else 'none'}",
                 title="⚠️ Command Requires Caution",
                 border_style="yellow",
             ))
         else:
-            output.write(Text(
-                f"🔧 {reason}\n$ {command}  [risk: {risk}]",
-                style="cyan",
-            ))
+            output.write(Panel(
+                f"Command: [bold]{command}[/]\n"
+                f"Reason: {reason}\n"
+                f"intent: {intent}\n"
+                f"Risk: [{risk_color}]{risk}[/]\n"
+                f"Warnings: {'; '.join(warn_reasons) if warn_reasons else 'none'}",
+                title="✔ Command Safely conducted",
+                border_style="green",
+            ))  
 
         # Execute
         sb.set_status(f"Running: {command[:40]}...")
@@ -652,30 +683,31 @@ class AgentCLI(App):
 
     async def _show_clarification_panel(self, question: str, options: list):
         output = self.query_one("#output-area", RichLog)
-        interaction_container = self.query_one("#interaction-container", Container)
 
         # 1. 渲染问题到日志区
         output.write(Text(f"❓ {question}", style="yellow bold"))
 
-        # 2. 如果没有选项，直接返回
+        # 2. 添加操作提示
+        output.write(Text("💡 提示：使用 ↑↓ 键选择选项，Enter 键确认，Esc 键关闭", style="dim cyan"))
+
+        # 3. 如果没有选项，直接返回
         if not options:
             return
 
-        # 3. 【关键修复】：在添加新组件前，先尝试移除旧的 OptionList
-        # 防止 ID 重复报错
+        # 4. 移除旧的 OptionList（如果存在）
         try:
             old_list = self.query_one("#clarification-list", OptionList)
             await old_list.remove()
         except Exception:
-            pass  # 如果找不到旧组件，说明是第一次，忽略错误
+            pass
 
-        # 4. 创建新的 OptionList 组件
+        # 5. 创建新的 OptionList 组件
         clarification_list = OptionList(*options, id="clarification-list")
 
-        # 5. 【关键逻辑】：将组件添加到 Container 中（而不是直接加到 Log 里）
-        await interaction_container.mount(clarification_list)
+        # 6. 直接 mount 到 App
+        await self.mount(clarification_list)
 
-        # 6. 自动聚焦
+        # 7. 聚焦到 OptionList
         clarification_list.focus()
     
     async def on_option_list_option_selected(self, event: OptionList.OptionSelected):
@@ -684,20 +716,28 @@ class AgentCLI(App):
             # 1. 获取用户选择的值
             selected_value = event.option.prompt
 
-            # 2. 从界面上移除这个交互组件，保持界面整洁
+            # 2. 在输出区域以绿色显示用户的选择
+            output = self.query_one("#output-area", RichLog)
+            output.write(Text(f"✅ 已选择: {selected_value}", style="bold green"))
+
+            # 3. 从界面上移除这个交互组件，保持界面整洁
             await event.option_list.remove()
 
-            # 3. 将选中的值作为用户的"新输入"进行处理
+            # 4. 焦点回到输入框
+            input_widget = self.query_one("#input-area", Input)
+            input_widget.focus()
+
+            # 5. 将选中的值作为用户的"新输入"进行处理
             # 这会触发新一轮的 _handle_orchestrated 循环
             # @work 装饰器会处理异步执行，无需 await
             self._handle_orchestrated(f"Selected: {selected_value}")
 
 
     def _close_clarification_panel_sync(self, event: Key) -> None:
-        """Close clarification panel on ESC without defining a duplicate on_key handler."""
+        """Close clarification panel on ESC."""
         try:
             clarification_list = self.query_one("#clarification-list", OptionList)
-            if self.focused == clarification_list or self.query_one("#interaction-container").query(OptionList):
+            if clarification_list.is_mounted:
                 self.call_later(self._close_clarification_panel)
                 event.stop()
         except Exception:
@@ -706,12 +746,13 @@ class AgentCLI(App):
     async def _close_clarification_panel(self) -> None:
         """关闭澄清面板（移除 OptionList）"""
         try:
-            # 查询并移除 OptionList
             clarification_list = self.query_one("#clarification-list", OptionList)
             await clarification_list.remove()
             # 在日志区输出一条消息，告知用户已取消
             output = self.query_one("#output-area", RichLog)
             output.write(Text("🚫 澄清面板已关闭", style="dim yellow"))
+            # 焦点回到输入框
+            input_widget = self.query_one("#input-area", Input)
+            input_widget.focus()
         except Exception:
-            # 如果没有找到 OptionList，说明面板已经关闭或不存在，忽略错误
             pass

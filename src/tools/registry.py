@@ -44,7 +44,7 @@ def register_tool(
         "parameters": parameters,
         "handler": handler,
     }
-    _PERMISSIONS[name] = DEFAULT_PERMISSIONS.get(name, permission)
+    _PERMISSIONS[name] = DEFAULT_PERMISSIONS.get(name, permission) # 默认为permission=ASK
 
 
 def get_tool(name: str) -> dict | None:
@@ -70,7 +70,7 @@ def get_tool_permission(name: str) -> str:
     return _PERMISSIONS.get(name, "ASK")
 
 
-def set_tool_permission(name: str, level: str):
+def set_tool_permission(name: str, level: str): # 无人调用？
     if level in PERMISSION_LEVELS:
         _PERMISSIONS[name] = level
 

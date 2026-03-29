@@ -113,7 +113,7 @@ class ToolA2AAgent:
             return _agent_exception(request, self.card, exc)
 
 
-class MemoryA2AAgent:
+class MemoryA2AAgent: #现在是被动跨Agent记忆，在O分类前调用，获取意图
     card = AgentCard(
         name="memory",
         description="Provides relevant memory context for a user input.",
