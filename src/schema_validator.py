@@ -10,6 +10,7 @@ from typing import Any
 
 from .schema_protocol import (
     ENVELOPE_REQUIRED_KEYS,
+    SCHEMA_KIND_ORCHESTRATOR,
     SCHEMA_KIND_TOOL_CALL,
     SCHEMA_SPECS,
 )
@@ -161,6 +162,29 @@ def validate_payload(payload: dict[str, Any], schema_kind: str) -> dict[str, Any
                     "constraint_failed",
                     f"Field '{field}' is out of allowed range.",
                     {"field": field, "min": min_value, "max": max_value, "actual": value},
+                    True,
+                )
+
+    if schema_kind == SCHEMA_KIND_ORCHESTRATOR:
+        intent = payload.get("intent")
+        message = payload.get("message")
+        task_description = payload.get("task_description")
+
+        if intent in {"direct_answer", "clarification"}:
+            if not isinstance(message, str) or not message.strip():
+                return _err(
+                    "constraint_failed",
+                    "Field 'message' must be a non-empty string for this intent.",
+                    {"field": "message", "intent": intent},
+                    True,
+                )
+
+        if intent in {"shell_agent", "tool_agent"}:
+            if not isinstance(task_description, str) or not task_description.strip():
+                return _err(
+                    "constraint_failed",
+                    "Field 'task_description' must be a non-empty string for this intent.",
+                    {"field": "task_description", "intent": intent},
                     True,
                 )
 

@@ -16,7 +16,7 @@ SCHEMA_SPECS: dict[str, dict[str, Any]] = {
             "intent": str,
             "reasoning": str,
             "confidence": (int, float),
-            "message": str,
+            "message": (str, type(None)),
             "task_description": str,
         },
         "enums": {

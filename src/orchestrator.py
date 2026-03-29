@@ -162,10 +162,13 @@ async def classify_intent(
     if isinstance(result, dict) and result.get("error"):
         reason = str(result.get("error"))
         return {
-            "intent": "direct_answer",
+            "intent": "clarification",
             "reasoning": f"Schema validation failed: {reason}",
             "confidence": 0.0,
-            "message": "I could not validate your request format. Please try again with clearer wording.",
+            "message": "I could not validate the structured response. Please try again with clearer wording.",
+            "task_description": "",
+            "schema_error": True,
+            "error_code": result.get("error_code", "unknown_error"),
         }
 
     return result
