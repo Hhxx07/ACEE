@@ -491,10 +491,9 @@ class AgentCLI(App):
         else:
             # direct_answer
             sb.set_status("Generating response...")
-            messages = [
-                {"role": "system", "content": "You are a helpful assistant. Answer concisely."},
-                {"role": "user", "content": user_input},
-            ]
+            messages = [{"role": "system", "content": "You are a helpful assistant. Answer concisely."}]
+            messages.extend(self._history_for_llm(limit=6, include_current=False))
+            messages.append({"role": "user", "content": user_input})
             full_resp = []
             buffered_chars = 0
             last_render_at = time.monotonic()
@@ -541,13 +540,33 @@ class AgentCLI(App):
             startup_context=self._startup_memory_context,
         )
 
+    def _history_for_llm(self, limit: int = 6, *, include_current: bool = True) -> list[dict]:
+        """Return sanitized conversation turns for prompt context."""
+        source = self.conversation_history if include_current else self.conversation_history[:-1]
+        cleaned: list[dict] = []
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            content = item.get("content")
+            if role in {"user", "assistant"} and isinstance(content, str):
+                cleaned.append({"role": role, "content": content})
+
+        if limit <= 0:
+            return []
+        return cleaned[-limit:]
+
     async def _dispatch_shell(self, user_input, classification, output, sb):
         """Dispatch to Shell Agent — Task 3."""
         sb.set_agent("Shell Agent")
         sb.set_status("Generating command...")
 
         task_desc = classification.get("task_description", user_input)
-        result = await self._a2a_runtime.generate_command(task_desc, user_input)
+        result = await self._a2a_runtime.generate_command(
+            task_desc,
+            user_input,
+            history=self._history_for_llm(limit=6, include_current=False),
+        )
 
         intent = result.get("intent", "refuse")
         command = result.get("command", "")
@@ -638,7 +657,12 @@ class AgentCLI(App):
         async def on_tool_output(text: str):
             output.write(Text(text.rstrip("\n"), style="dim white"))
 
-        result = await self._a2a_runtime.handle_tool_task(task_desc, user_input, on_tool_output)
+        result = await self._a2a_runtime.handle_tool_task(
+            task_desc,
+            user_input,
+            on_tool_output,
+            history=self._history_for_llm(limit=6, include_current=False),
+        )
         if result:
             try:
                 output.write(Markdown(result))

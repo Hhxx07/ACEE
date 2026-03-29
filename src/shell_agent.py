@@ -103,7 +103,28 @@ def _run_offline_parser(task_description: str, user_input: str, context: dict) -
     return None
 
 
-async def generate_command(task_description: str, user_input: str) -> dict:
+def _normalize_history(history: list[dict] | None, limit: int = 6) -> list[dict]:
+    """Keep only valid user/assistant turns for prompt context."""
+    if not history or limit <= 0:
+        return []
+
+    cleaned: list[dict] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str):
+            cleaned.append({"role": role, "content": content})
+
+    return cleaned[-limit:]
+
+
+async def generate_command(
+    task_description: str,
+    user_input: str,
+    history: list[dict] | None = None,
+) -> dict:
     """Generate a shell command from natural language.
 
     Returns dict with: intent, command, reason, risk_level, safety_check
@@ -111,10 +132,14 @@ async def generate_command(task_description: str, user_input: str) -> dict:
     ctx = _get_context()
     system_msg = SHELL_SYSTEM_PROMPT.format(**ctx)
 
-    messages = [
-        {"role": "system", "content": system_msg},
-        {"role": "user", "content": f"Original user request: {user_input}\n\nTask from orchestrator: {task_description}"},
-    ]
+    messages = [{"role": "system", "content": system_msg}]
+    messages.extend(_normalize_history(history, limit=6))
+    messages.append(
+        {
+            "role": "user",
+            "content": f"Original user request: {user_input}\n\nTask from orchestrator: {task_description}",
+        }
+    )
 
     mode = _resolve_shell_mode()
 

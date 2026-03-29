@@ -53,6 +53,10 @@ def _build_summary(samples: list[dict]) -> dict:
     intent_changed_count = 0
     confidence_deltas: list[float] = []
     field_counts: dict[str, int] = {}
+    with_context_offline_hits = 0
+    without_context_offline_hits = 0
+    llm_path_samples = 0
+    llm_path_changed = 0
 
     for sample in samples:
         diff = sample.get("diff", {})
@@ -61,6 +65,17 @@ def _build_summary(samples: list[dict]) -> dict:
 
         with_ctx = sample.get("with_context", {})
         without_ctx = sample.get("without_context", {})
+
+        with_offline = bool(with_ctx.get("offline_hit"))
+        without_offline = bool(without_ctx.get("offline_hit"))
+        if with_offline:
+            with_context_offline_hits += 1
+        if without_offline:
+            without_context_offline_hits += 1
+        if not with_offline and not without_offline:
+            llm_path_samples += 1
+            if diff.get("changed"):
+                llm_path_changed += 1
 
         if with_ctx.get("intent") != without_ctx.get("intent"):
             intent_changed_count += 1
@@ -78,6 +93,15 @@ def _build_summary(samples: list[dict]) -> dict:
         "changed_samples": changed_samples,
         "changed_rate": round(changed_samples / sample_count, 4) if sample_count else 0.0,
         "intent_changed_count": intent_changed_count,
+        "with_context_offline_hit_rate": (
+            round(with_context_offline_hits / sample_count, 4) if sample_count else 0.0
+        ),
+        "without_context_offline_hit_rate": (
+            round(without_context_offline_hits / sample_count, 4) if sample_count else 0.0
+        ),
+        "llm_only_changed_rate": (
+            round(llm_path_changed / llm_path_samples, 4) if llm_path_samples else 0.0
+        ),
         "avg_confidence_delta": (
             round(sum(confidence_deltas) / len(confidence_deltas), 4)
             if confidence_deltas

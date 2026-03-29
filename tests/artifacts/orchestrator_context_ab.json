@@ -1,89 +1,93 @@
 {
-  "run_id": "1d41ae6615ed",
-  "generated_at": "2026-03-29T03:04:25.383879+00:00",
+  "run_id": "9142fe8798ac",
+  "generated_at": "2026-03-29T07:46:10.055141+00:00",
   "model": "deepseek-chat",
   "sample_count": 9,
   "notes": "real_api_ab_compare",
   "status": "completed",
   "samples": [
     {
-      "generated_at": "2026-03-29T03:04:30.691568+00:00",
+      "generated_at": "2026-03-29T07:46:23.875035+00:00",
       "model": "deepseek-chat",
       "user_input": "我要在这个终端里设置一个名为 DEBUG_MODE 值为 true 的临时环境变量，然后打印出来确认。请给我命令。",
       "with_context": {
-        "intent": "clarification",
-        "reasoning": "Schema validation failed: LLM API error: Connection error.",
-        "confidence": 0.0,
-        "message": "I could not validate the structured response. Please try again with clearer wording.",
-        "task_description": "",
-        "schema_error": true,
-        "error_code": "api_error"
-      },
-      "without_context": {
-        "intent": "clarification",
-        "reasoning": "Schema validation failed: LLM API error: Connection error.",
-        "confidence": 0.0,
-        "message": "I could not validate the structured response. Please try again with clearer wording.",
-        "task_description": "",
-        "schema_error": true,
-        "error_code": "api_error"
-      },
-      "diff": {
-        "changed": false,
-        "changed_fields": [],
-        "details": {}
-      },
-      "sample_id": 1,
-      "verdict": "same"
-    },
-    {
-      "generated_at": "2026-03-29T03:04:37.620480+00:00",
-      "model": "deepseek-chat",
-      "user_input": "帮我写一个脚本命令，查看当前系统的内存使用情况。",
-      "with_context": {
-        "intent": "clarification",
-        "reasoning": "Schema validation failed: LLM API error: Connection error.",
-        "confidence": 0.0,
-        "message": "I could not validate the structured response. Please try again with clearer wording.",
-        "task_description": "",
-        "schema_error": true,
-        "error_code": "api_error"
+        "intent": "shell_agent",
+        "reasoning": "用户请求在终端中设置临时环境变量并打印确认，这涉及执行系统命令（如设置环境变量和打印变量值），属于shell操作范畴。",
+        "confidence": 0.9,
+        "message": "",
+        "task_description": "在Windows cmd/powershell环境中，设置一个名为DEBUG_MODE值为true的临时环境变量，然后打印该变量的值以确认设置成功。",
+        "context_mode": "with_context",
+        "offline_hit": false
       },
       "without_context": {
         "intent": "shell_agent",
-        "reasoning": "The user requests a script command to check memory usage, which involves executing system commands to retrieve real-time system information, a task best handled by the shell_agent for direct command execution.",
-        "confidence": 0.9,
+        "reasoning": "The user wants to set a temporary environment variable in the terminal and then print it to confirm, which involves executing shell commands (e.g., export and echo) to modify and display system environment settings.",
+        "confidence": 0.95,
         "message": "",
-        "task_description": "Execute a shell command to display the current system memory usage, such as using 'free -h' or 'top' commands, and provide the output to the user."
+        "task_description": "Execute shell commands to set a temporary environment variable named DEBUG_MODE with value true in the current terminal session, then print the variable to confirm its value.",
+        "context_mode": "without_context",
+        "offline_hit": false
       },
       "diff": {
         "changed": true,
         "changed_fields": [
           "confidence",
-          "intent",
-          "message",
           "reasoning",
           "task_description"
         ],
         "details": {
-          "intent": {
-            "with_context": "clarification",
-            "without_context": "shell_agent"
-          },
           "confidence": {
-            "with_context": 0.0,
-            "without_context": 0.9
+            "with_context": 0.9,
+            "without_context": 0.95
           },
           "reasoning": {
-            "with_context": "Schema validation failed: LLM API error: Connection error.",
-            "without_context": "The user requests a script command to check memory usage, which involves executing system commands to retrieve real-time system information, a task best handled by the shell_agent for direct command execution."
-          },
-          "message": {
-            "with_context": "I could not validate the structured response. Please try again with clearer wording.",
-            "without_context": ""
+            "with_context": "用户请求在终端中设置临时环境变量并打印确认，这涉及执行系统命令（如设置环境变量和打印变量值），属于shell操作范畴。",
+            "without_context": "The user wants to set a temporary environment variable in the terminal and then print it to confirm, which involves executing shell commands (e.g., export and echo) to modify and display system environment settings."
           },
           "task_description": {
-            "with_context": "",
+            "with_context": "在Windows cmd/powershell环境中，设置一个名为DEBUG_MODE值为true的临时环境变量，然后打印该变量的值以确认设置成功。",
+            "without_context": "Execute shell commands to set a temporary environment variable named DEBUG_MODE with value true in the current terminal session, then print the variable to confirm its value."
+          }
+        }
+      },
+      "sample_id": 1,
+      "verdict": "changed"
+    },
+    {
+      "generated_at": "2026-03-29T07:46:35.332089+00:00",
+      "model": "deepseek-chat",
+      "user_input": "帮我写一个脚本命令，查看当前系统的内存使用情况。",
+      "with_context": {
+        "intent": "shell_agent",
+        "reasoning": "The user requests a script command to check current system memory usage, which involves executing a system command to retrieve memory information, making shell_agent the appropriate choice for handling such system-level operations.",
+        "confidence": 0.9,
+        "message": "",
+        "task_description": "Execute a command to display the current memory usage on the Windows 10 system, such as using PowerShell or cmd commands like 'systeminfo' or 'Get-WmiObject Win32_OperatingSystem' to show memory details.",
+        "context_mode": "with_context",
+        "offline_hit": false
+      },
+      "without_context": {
+        "intent": "shell_agent",
+        "reasoning": "The user requests a script command to check memory usage, which involves executing a system command to retrieve real-time system information, making it suitable for shell_agent.",
+        "confidence": 0.9,
+        "message": "",
+        "task_description": "Execute a shell command to display the current system memory usage, such as using 'free -h' or 'top' commands, and provide the output to the user.",
+        "context_mode": "without_context",
+        "offline_hit": false
+      },
+      "diff": {
+        "changed": true,
+        "changed_fields": [
+          "reasoning",
+          "task_description"
+        ],
+        "details": {
+          "reasoning": {
+            "with_context": "The user requests a script command to check current system memory usage, which involves executing a system command to retrieve memory information, making shell_agent the appropriate choice for handling such system-level operations.",
+            "without_context": "The user requests a script command to check memory usage, which involves executing a system command to retrieve real-time system information, making it suitable for shell_agent."
+          },
+          "task_description": {
+            "with_context": "Execute a command to display the current memory usage on the Windows 10 system, such as using PowerShell or cmd commands like 'systeminfo' or 'Get-WmiObject Win32_OperatingSystem' to show memory details.",
             "without_context": "Execute a shell command to display the current system memory usage, such as using 'free -h' or 'top' commands, and provide the output to the user."
           }
         }
@@ -92,7 +96,7 @@
       "verdict": "changed"
     },
     {
-      "generated_at": "2026-03-29T03:04:37.671688+00:00",
+      "generated_at": "2026-03-29T07:46:35.478377+00:00",
       "model": "deepseek-chat",
       "user_input": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
       "with_context": {
@@ -100,14 +104,18 @@
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？"
+        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
+        "context_mode": "with_context",
+        "offline_hit": true
       },
       "without_context": {
         "intent": "shell_agent",
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？"
+        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
+        "context_mode": "without_context",
+        "offline_hit": true
       },
       "diff": {
         "changed": false,
@@ -118,7 +126,7 @@
       "verdict": "same"
     },
     {
-      "generated_at": "2026-03-29T03:04:37.720604+00:00",
+      "generated_at": "2026-03-29T07:46:35.603015+00:00",
       "model": "deepseek-chat",
       "user_input": "帮我写一个命令，把当前目录下的所有日志文件压缩打包，并清理掉原文件。",
       "with_context": {
@@ -126,14 +134,18 @@
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "帮我写一个命令，把当前目录下的所有日志文件压缩打包，并清理掉原文件。"
+        "task_description": "帮我写一个命令，把当前目录下的所有日志文件压缩打包，并清理掉原文件。",
+        "context_mode": "with_context",
+        "offline_hit": true
       },
       "without_context": {
         "intent": "shell_agent",
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "帮我写一个命令，把当前目录下的所有日志文件压缩打包，并清理掉原文件。"
+        "task_description": "帮我写一个命令，把当前目录下的所有日志文件压缩打包，并清理掉原文件。",
+        "context_mode": "without_context",
+        "offline_hit": true
       },
       "diff": {
         "changed": false,
@@ -144,22 +156,26 @@
       "verdict": "same"
     },
     {
-      "generated_at": "2026-03-29T03:04:49.135020+00:00",
+      "generated_at": "2026-03-29T07:46:48.660090+00:00",
       "model": "deepseek-chat",
       "user_input": "我刚写完代码，帮我把现在的改动生成一个合适的 Git Commit Message。",
       "with_context": {
         "intent": "shell_agent",
-        "reasoning": "The user wants to generate a Git commit message for recent code changes, which involves using Git commands to inspect changes and create a commit, falling under system/shell operations.",
+        "reasoning": "The user wants to generate a Git commit message for recent changes, which involves executing Git commands (e.g., 'git status', 'git diff', 'git commit') to inspect and commit modifications in the repository.",
         "confidence": 0.9,
         "message": "",
-        "task_description": "Check the Git status to see uncommitted changes, then generate a descriptive commit message based on the changes (e.g., using 'git diff' or 'git status'), and commit with that message."
+        "task_description": "Check the current Git status and staged changes, then generate a descriptive commit message based on the modifications (e.g., using 'git diff --staged' or similar). If no changes are staged, prompt the user to stage them first. Execute the commit with an appropriate message summarizing the changes.",
+        "context_mode": "with_context",
+        "offline_hit": false
       },
       "without_context": {
         "intent": "shell_agent",
-        "reasoning": "The user wants to generate a Git commit message for their recent code changes, which involves interacting with the Git system and potentially executing commands to inspect changes and create a commit.",
+        "reasoning": "The user requests generating a Git commit message for recent code changes, which involves executing Git commands (e.g., 'git status', 'git diff', 'git commit') to inspect and commit changes, a task best handled by shell_agent for system-level operations.",
         "confidence": 0.9,
         "message": "",
-        "task_description": "Check the current Git status to see uncommitted changes, then generate a descriptive and appropriate commit message based on the changes (e.g., by summarizing modifications or using a standard format), and optionally commit the changes if the user confirms."
+        "task_description": "Check the current Git status and staged changes, then generate and apply a descriptive commit message based on the recent modifications.",
+        "context_mode": "without_context",
+        "offline_hit": false
       },
       "diff": {
         "changed": true,
@@ -169,12 +185,12 @@
         ],
         "details": {
           "reasoning": {
-            "with_context": "The user wants to generate a Git commit message for recent code changes, which involves using Git commands to inspect changes and create a commit, falling under system/shell operations.",
-            "without_context": "The user wants to generate a Git commit message for their recent code changes, which involves interacting with the Git system and potentially executing commands to inspect changes and create a commit."
+            "with_context": "The user wants to generate a Git commit message for recent changes, which involves executing Git commands (e.g., 'git status', 'git diff', 'git commit') to inspect and commit modifications in the repository.",
+            "without_context": "The user requests generating a Git commit message for recent code changes, which involves executing Git commands (e.g., 'git status', 'git diff', 'git commit') to inspect and commit changes, a task best handled by shell_agent for system-level operations."
           },
           "task_description": {
-            "with_context": "Check the Git status to see uncommitted changes, then generate a descriptive commit message based on the changes (e.g., using 'git diff' or 'git status'), and commit with that message.",
-            "without_context": "Check the current Git status to see uncommitted changes, then generate a descriptive and appropriate commit message based on the changes (e.g., by summarizing modifications or using a standard format), and optionally commit the changes if the user confirms."
+            "with_context": "Check the current Git status and staged changes, then generate a descriptive commit message based on the modifications (e.g., using 'git diff --staged' or similar). If no changes are staged, prompt the user to stage them first. Execute the commit with an appropriate message summarizing the changes.",
+            "without_context": "Check the current Git status and staged changes, then generate and apply a descriptive commit message based on the recent modifications."
           }
         }
       },
@@ -182,22 +198,26 @@
       "verdict": "changed"
     },
     {
-      "generated_at": "2026-03-29T03:05:01.528622+00:00",
+      "generated_at": "2026-03-29T07:47:01.906916+00:00",
       "model": "deepseek-chat",
       "user_input": "我现在在哪个分支上？有没有忘记提交的文件？",
       "with_context": {
         "intent": "shell_agent",
-        "reasoning": "用户询问当前Git分支和是否有未提交的文件，这涉及Git命令执行（如git branch和git status），属于系统/shell操作，适合由shell_agent处理。",
+        "reasoning": "The user is asking about the current Git branch and uncommitted files, which requires executing Git commands (e.g., 'git branch' and 'git status') in the shell to retrieve this information from the repository.",
         "confidence": 0.9,
         "message": "",
-        "task_description": "执行Git命令来检查当前分支和未提交的文件：首先运行'git branch --show-current'或'git rev-parse --abbrev-ref HEAD'获取当前分支，然后运行'git status --porcelain'或'git status'检查是否有未提交的更改。"
+        "task_description": "Execute Git commands to check the current branch and list any uncommitted or untracked files in the repository.",
+        "context_mode": "with_context",
+        "offline_hit": false
       },
       "without_context": {
         "intent": "shell_agent",
-        "reasoning": "The user is asking about their current Git branch and whether there are uncommitted files, which requires executing Git commands to check the repository status.",
+        "reasoning": "The user is asking about the current Git branch and uncommitted files, which requires executing shell commands (e.g., 'git branch' and 'git status') to retrieve system-specific information.",
         "confidence": 0.9,
         "message": "",
-        "task_description": "Execute Git commands to determine the current branch and list any uncommitted files (e.g., 'git branch --show-current' and 'git status --porcelain')."
+        "task_description": "Execute Git commands to check the current branch and list any uncommitted files. First, run 'git branch --show-current' to get the branch name, then run 'git status --porcelain' to check for uncommitted changes, and provide a summary of the results.",
+        "context_mode": "without_context",
+        "offline_hit": false
       },
       "diff": {
         "changed": true,
@@ -207,12 +227,12 @@
         ],
         "details": {
           "reasoning": {
-            "with_context": "用户询问当前Git分支和是否有未提交的文件，这涉及Git命令执行（如git branch和git status），属于系统/shell操作，适合由shell_agent处理。",
-            "without_context": "The user is asking about their current Git branch and whether there are uncommitted files, which requires executing Git commands to check the repository status."
+            "with_context": "The user is asking about the current Git branch and uncommitted files, which requires executing Git commands (e.g., 'git branch' and 'git status') in the shell to retrieve this information from the repository.",
+            "without_context": "The user is asking about the current Git branch and uncommitted files, which requires executing shell commands (e.g., 'git branch' and 'git status') to retrieve system-specific information."
           },
           "task_description": {
-            "with_context": "执行Git命令来检查当前分支和未提交的文件：首先运行'git branch --show-current'或'git rev-parse --abbrev-ref HEAD'获取当前分支，然后运行'git status --porcelain'或'git status'检查是否有未提交的更改。",
-            "without_context": "Execute Git commands to determine the current branch and list any uncommitted files (e.g., 'git branch --show-current' and 'git status --porcelain')."
+            "with_context": "Execute Git commands to check the current branch and list any uncommitted or untracked files in the repository.",
+            "without_context": "Execute Git commands to check the current branch and list any uncommitted files. First, run 'git branch --show-current' to get the branch name, then run 'git status --porcelain' to check for uncommitted changes, and provide a summary of the results."
           }
         }
       },
@@ -220,54 +240,46 @@
       "verdict": "changed"
     },
     {
-      "generated_at": "2026-03-29T03:05:10.297775+00:00",
+      "generated_at": "2026-03-29T07:47:15.417127+00:00",
       "model": "deepseek-chat",
       "user_input": "检查一下我当前的环境里有没有配置 HTTP 代理，或者有没有设置 JAVA_HOME 路径？",
       "with_context": {
-        "intent": "tool_agent",
-        "reasoning": "The user is asking to check for specific environment configurations (HTTP proxy and JAVA_HOME path), which involves reading system environment variables. This is a structured task that can be handled by the tool_agent using built-in tools to retrieve and analyze environment information.",
+        "intent": "shell_agent",
+        "reasoning": "The user is asking to check for HTTP proxy configurations and JAVA_HOME path settings, which involves inspecting system environment variables and potentially network settings. This requires executing shell commands (e.g., 'echo %HTTP_PROXY%' or 'echo %JAVA_HOME%' in cmd/powershell) to retrieve current configurations, making it a system/shell command task.",
         "confidence": 0.9,
         "message": "",
-        "task_description": "Check the current environment for HTTP proxy settings (e.g., by examining environment variables like HTTP_PROXY, HTTPS_PROXY, or system proxy configurations) and verify if JAVA_HOME is set (by checking the JAVA_HOME environment variable). Provide a summary of the findings."
+        "task_description": "Execute shell commands to check for HTTP proxy environment variables (e.g., HTTP_PROXY, HTTPS_PROXY) and the JAVA_HOME path in the current Windows environment. Provide the output of these commands to the user.",
+        "context_mode": "with_context",
+        "offline_hit": false
       },
       "without_context": {
-        "intent": "clarification",
-        "reasoning": "Schema validation failed: LLM API error: Connection error.",
-        "confidence": 0.0,
-        "message": "I could not validate the structured response. Please try again with clearer wording.",
-        "task_description": "",
-        "schema_error": true,
-        "error_code": "api_error"
+        "intent": "tool_agent",
+        "reasoning": "The user is asking to check for the presence of HTTP proxy configurations and JAVA_HOME environment variable, which involves reading system environment variables and configuration files, a task best handled by the tool_agent for structured information retrieval.",
+        "confidence": 0.9,
+        "message": "",
+        "task_description": "Check the current environment for HTTP proxy settings (e.g., environment variables like HTTP_PROXY, HTTPS_PROXY, or configuration files) and verify if JAVA_HOME is set in the environment variables. Provide a summary of findings.",
+        "context_mode": "without_context",
+        "offline_hit": false
       },
       "diff": {
         "changed": true,
         "changed_fields": [
-          "confidence",
           "intent",
-          "message",
           "reasoning",
           "task_description"
         ],
         "details": {
           "intent": {
-            "with_context": "tool_agent",
-            "without_context": "clarification"
-          },
-          "confidence": {
-            "with_context": 0.9,
-            "without_context": 0.0
+            "with_context": "shell_agent",
+            "without_context": "tool_agent"
           },
           "reasoning": {
-            "with_context": "The user is asking to check for specific environment configurations (HTTP proxy and JAVA_HOME path), which involves reading system environment variables. This is a structured task that can be handled by the tool_agent using built-in tools to retrieve and analyze environment information.",
-            "without_context": "Schema validation failed: LLM API error: Connection error."
-          },
-          "message": {
-            "with_context": "",
-            "without_context": "I could not validate the structured response. Please try again with clearer wording."
+            "with_context": "The user is asking to check for HTTP proxy configurations and JAVA_HOME path settings, which involves inspecting system environment variables and potentially network settings. This requires executing shell commands (e.g., 'echo %HTTP_PROXY%' or 'echo %JAVA_HOME%' in cmd/powershell) to retrieve current configurations, making it a system/shell command task.",
+            "without_context": "The user is asking to check for the presence of HTTP proxy configurations and JAVA_HOME environment variable, which involves reading system environment variables and configuration files, a task best handled by the tool_agent for structured information retrieval."
           },
           "task_description": {
-            "with_context": "Check the current environment for HTTP proxy settings (e.g., by examining environment variables like HTTP_PROXY, HTTPS_PROXY, or system proxy configurations) and verify if JAVA_HOME is set (by checking the JAVA_HOME environment variable). Provide a summary of the findings.",
-            "without_context": ""
+            "with_context": "Execute shell commands to check for HTTP proxy environment variables (e.g., HTTP_PROXY, HTTPS_PROXY) and the JAVA_HOME path in the current Windows environment. Provide the output of these commands to the user.",
+            "without_context": "Check the current environment for HTTP proxy settings (e.g., environment variables like HTTP_PROXY, HTTPS_PROXY, or configuration files) and verify if JAVA_HOME is set in the environment variables. Provide a summary of findings."
           }
         }
       },
@@ -275,7 +287,7 @@
       "verdict": "changed"
     },
     {
-      "generated_at": "2026-03-29T03:05:10.353922+00:00",
+      "generated_at": "2026-03-29T07:47:15.541623+00:00",
       "model": "deepseek-chat",
       "user_input": "分析我当前目录的项目结构和 Git 状态，告诉我接下来我需要运行什么命令来把最新的代码改动部署到测试环境？",
       "with_context": {
@@ -283,14 +295,18 @@
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "分析我当前目录的项目结构和 Git 状态，告诉我接下来我需要运行什么命令来把最新的代码改动部署到测试环境？"
+        "task_description": "分析我当前目录的项目结构和 Git 状态，告诉我接下来我需要运行什么命令来把最新的代码改动部署到测试环境？",
+        "context_mode": "with_context",
+        "offline_hit": true
       },
       "without_context": {
         "intent": "shell_agent",
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "分析我当前目录的项目结构和 Git 状态，告诉我接下来我需要运行什么命令来把最新的代码改动部署到测试环境？"
+        "task_description": "分析我当前目录的项目结构和 Git 状态，告诉我接下来我需要运行什么命令来把最新的代码改动部署到测试环境？",
+        "context_mode": "without_context",
+        "offline_hit": true
       },
       "diff": {
         "changed": false,
@@ -301,7 +317,7 @@
       "verdict": "same"
     },
     {
-      "generated_at": "2026-03-29T03:05:10.404403+00:00",
+      "generated_at": "2026-03-29T07:47:15.676455+00:00",
       "model": "deepseek-chat",
       "user_input": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
       "with_context": {
@@ -309,14 +325,18 @@
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？"
+        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
+        "context_mode": "with_context",
+        "offline_hit": true
       },
       "without_context": {
         "intent": "shell_agent",
         "reasoning": "Offline pre-classifier hit: Generated by offline parser using regex + local NLP heuristics",
         "confidence": 0.93,
         "message": null,
-        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？"
+        "task_description": "当前目录下有哪些可以被执行的脚本文件？我应该运行哪一个来启动当前的项目？",
+        "context_mode": "without_context",
+        "offline_hit": true
       },
       "diff": {
         "changed": false,
@@ -328,30 +348,29 @@
     }
   ],
   "summary": {
-    "changed_samples": 4,
-    "changed_rate": 0.4444,
-    "intent_changed_count": 2,
-    "avg_confidence_delta": 0.0,
+    "changed_samples": 5,
+    "changed_rate": 0.5556,
+    "intent_changed_count": 1,
+    "with_context_offline_hit_rate": 0.4444,
+    "without_context_offline_hit_rate": 0.4444,
+    "llm_only_changed_rate": 1.0,
+    "avg_confidence_delta": -0.0056,
     "most_changed_fields": [
       [
         "reasoning",
-        4
+        5
       ],
       [
         "task_description",
-        4
+        5
       ],
       [
         "confidence",
-        2
+        1
       ],
       [
         "intent",
-        2
-      ],
-      [
-        "message",
-        2
+        1
       ]
     ]
   }

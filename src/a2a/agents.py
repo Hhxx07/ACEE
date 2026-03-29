@@ -72,7 +72,13 @@ class ShellA2AAgent:
         try:
             user_input = str(request.payload.get("user_input", ""))
             task_description = str(request.payload.get("task_description", user_input))
-            result = await shell_agent.generate_command(task_description, user_input)
+            history = request.payload.get("history") or []
+            shell_generate: Any = shell_agent.generate_command
+            result = await shell_generate(
+                task_description,
+                user_input,
+                history=history,
+            )
             return A2AResponse(
                 request_id=request.request_id,
                 task_id=request.task_id,
@@ -100,7 +106,14 @@ class ToolA2AAgent:
             user_input = str(request.payload.get("user_input", ""))
             task_description = str(request.payload.get("task_description", user_input))
             on_output = request.payload.get("on_output")
-            result = await tool_agent.handle_task(task_description, user_input, on_output)
+            history = request.payload.get("history") or []
+            tool_handle: Any = tool_agent.handle_task
+            result = await tool_handle(
+                task_description,
+                user_input,
+                on_output=on_output,
+                history=history,
+            )
             return A2AResponse(
                 request_id=request.request_id,
                 task_id=request.task_id,

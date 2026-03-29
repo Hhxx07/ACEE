@@ -23,7 +23,29 @@ Always explain what you are doing and show the results clearly."""
 MAX_ITERATIONS = 5
 
 
-async def handle_task(task_description: str, user_input: str, on_output=None) -> str:
+def _normalize_history(history: list[dict] | None, limit: int = 6) -> list[dict]:
+    """Keep only valid user/assistant turns for prompt context."""
+    if not history or limit <= 0:
+        return []
+
+    cleaned: list[dict] = []
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str):
+            cleaned.append({"role": role, "content": content})
+
+    return cleaned[-limit:]
+
+
+async def handle_task(
+    task_description: str,
+    user_input: str,
+    on_output=None,
+    history: list[dict] | None = None,
+) -> str:
     """Handle a task using function calling with available tools.
 
     Implements a ReAct loop: LLM picks a tool → execute → observe → repeat.
@@ -37,10 +59,11 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
     if not tools:
         return "[Tool Agent] No tools available."
 
-    messages = [
-        {"role": "system", "content": TOOL_SYSTEM_PROMPT},
-        {"role": "user", "content": f"User request: {user_input}\n\nTask: {task_description}"},
-    ]
+    messages = [{"role": "system", "content": TOOL_SYSTEM_PROMPT}]
+    messages.extend(_normalize_history(history, limit=6))
+    messages.append(
+        {"role": "user", "content": f"User request: {user_input}\n\nTask: {task_description}"}
+    )
 
     all_output = []
 

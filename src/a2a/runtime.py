@@ -112,12 +112,21 @@ class A2ARuntime:
             }
         return response.artifacts.get("classification", {})
 
-    async def generate_command(self, task_description: str, user_input: str) -> dict: #仅仅被shell agent调用
+    async def generate_command(
+        self,
+        task_description: str,
+        user_input: str,
+        history: list[dict] | None = None,
+    ) -> dict: #仅仅被shell agent调用
         response = await self._transport.send(
             A2ARequest(
                 to_agent="shell",
                 action="generate_command",
-                payload={"task_description": task_description, "user_input": user_input},
+                payload={
+                    "task_description": task_description,
+                    "user_input": user_input,
+                    "history": history or [],
+                },
             )
         )
         if self._is_failure_response(response):
@@ -130,7 +139,13 @@ class A2ARuntime:
             }
         return response.artifacts.get("command_result", {})
 
-    async def handle_tool_task(self, task_description: str, user_input: str, on_output=None) -> str:
+    async def handle_tool_task(
+        self,
+        task_description: str,
+        user_input: str,
+        on_output=None,
+        history: list[dict] | None = None,
+    ) -> str:
         response = await self._transport.send(
             A2ARequest(
                 to_agent="tool",
@@ -139,6 +154,7 @@ class A2ARuntime:
                     "task_description": task_description,
                     "user_input": user_input,
                     "on_output": on_output,
+                    "history": history or [],
                 },
             )
         )

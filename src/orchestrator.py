@@ -16,9 +16,7 @@ SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system. Y
 - OS: {os_info}
 - Shell: {shell_type}
 - Current directory: {cwd}
-- Directory listing (first 100): {dir_listing}
-- Git status: {git_status}
-- Environment: {env_vars}
+- Context signals: {context_signals}
 
 ## Startup Memory Snapshot
 {startup_memory}
@@ -55,6 +53,9 @@ Analyze the user's input and respond with a JSON object using this envelope:
 Respond with ONLY the JSON object, no other text."""
 
 
+MAX_CONTEXT_FIELD_CHARS = 320
+
+
 #这里的几个函数让主控先知道现在的上下文是什么，作为后面执行命令和分发的基本信息
 def _get_git_status() -> str:
     """Try to get git status for context injection."""
@@ -78,8 +79,86 @@ def _get_shell_type() -> str:
     return os.environ.get("SHELL", "cmd/powershell" if platform.system() == "Windows" else "bash")
 
 
+def _sanitize_context_value(value: str, max_chars: int = MAX_CONTEXT_FIELD_CHARS) -> str:
+    """Normalize context fields to keep prompts stable and concise."""
+    cleaned = " ".join(str(value or "").split())
+    if not cleaned:
+        return "(none)"
+    if len(cleaned) > max_chars:
+        return f"{cleaned[:max_chars]}..."
+    return cleaned
+
+
+def _derive_repo_signal(entries: list[str], git_status_text: str) -> str:
+    git_repo = "yes" if git_status_text != "(clean or not a git repo)" else "no"
+    dirty_count = 0
+    if git_status_text not in {"(clean or not a git repo)", "(git not available)"}:
+        dirty_count = len([line for line in git_status_text.split("\n") if line.strip()])
+
+    marker_map = {
+        "python": ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"],
+        "node": ["package.json", "pnpm-lock.yaml", "yarn.lock"],
+        "java": ["pom.xml", "build.gradle"],
+        "go": ["go.mod"],
+        "rust": ["Cargo.toml"],
+    }
+    lower_entries = {name.lower() for name in entries}
+    tags: list[str] = []
+    for tag, markers in marker_map.items():
+        if any(marker.lower() in lower_entries for marker in markers):
+            tags.append(tag)
+    if not tags:
+        tags.append("unknown")
+
+    return f"git_repo={git_repo}; dirty_files={dirty_count}; repo_tags={','.join(tags)}"
+
+
+def _derive_exec_signal(entries: list[str]) -> str:
+    executable_ext = (".py", ".sh", ".ps1", ".bat", ".cmd", ".exe")
+    exec_candidates = [name for name in entries if name.lower().endswith(executable_ext)]
+    preview = ", ".join(exec_candidates[:8]) if exec_candidates else "(none)"
+    return f"exec_candidates={len(exec_candidates)}; examples={preview}"
+
+
+def _derive_language_signal(entries: list[str]) -> str:
+    extension_counts: dict[str, int] = {}
+    for name in entries:
+        if "." not in name:
+            continue
+        ext = f".{name.rsplit('.', 1)[-1].lower()}"
+        extension_counts[ext] = extension_counts.get(ext, 0) + 1
+    if not extension_counts:
+        return "primary_extension=(none); top_extensions=(none)"
+
+    sorted_ext = sorted(extension_counts.items(), key=lambda item: item[1], reverse=True)
+    top_ext = sorted_ext[0][0]
+    top_preview = ", ".join(f"{ext}:{count}" for ext, count in sorted_ext[:5])
+    return f"primary_extension={top_ext}; top_extensions={top_preview}"
+
+
+def _derive_directory_risk(cwd: str) -> str:
+    """Mark potentially risky working directories for destructive shell intents."""
+    norm = os.path.normpath(cwd)
+    _, tail = os.path.splitdrive(norm)
+    is_root = tail in {"\\", "/", ""}
+    risky = is_root or norm.lower().startswith(("c:\\windows", "c:\\program files"))
+    return "high" if risky else "normal"
+
+
+def _build_context_signals(cwd: str, entries: list[str], git_status_text: str) -> str:
+    signals = [
+        _derive_repo_signal(entries, git_status_text),
+        _derive_exec_signal(entries),
+        _derive_language_signal(entries),
+        f"directory_risk={_derive_directory_risk(cwd)}",
+        f"entry_count={len(entries)}",
+    ]
+    return " | ".join(signals)
+
+
 def _get_context() -> dict:
     cwd = os.getcwd()
+    entries: list[str] = []
     try:
         entries = os.listdir(cwd)[:100]
         dir_listing = ", ".join(entries) if entries else "(empty)"
@@ -92,14 +171,16 @@ def _get_context() -> dict:
     safe_env_keys = ["PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "VIRTUAL_ENV", "CONDA_DEFAULT_ENV"]
     env_vars = {k: os.environ.get(k, "") for k in safe_env_keys if os.environ.get(k)}
     env_str = ", ".join(f"{k}={v}" for k, v in list(env_vars.items())[:10]) or "(none)"
+    context_signals = _build_context_signals(cwd, entries, git_status)
 
     return {
-        "os_info": f"{platform.system()} {platform.release()}",
-        "cwd": cwd,
-        "dir_listing": dir_listing,
-        "git_status": git_status,
-        "shell_type": _get_shell_type(),
-        "env_vars": env_str,
+        "os_info": _sanitize_context_value(f"{platform.system()} {platform.release()}"),
+        "cwd": _sanitize_context_value(cwd),
+        "dir_listing": _sanitize_context_value(dir_listing),
+        "git_status": _sanitize_context_value(git_status),
+        "shell_type": _sanitize_context_value(_get_shell_type()),
+        "env_vars": _sanitize_context_value(env_str),
+        "context_signals": _sanitize_context_value(context_signals, max_chars=640),
     }
 
 
@@ -112,6 +193,7 @@ def _empty_context() -> dict:
         "git_status": "(not injected)",
         "shell_type": "(not injected)",
         "env_vars": "(not injected)",
+        "context_signals": "(not injected)",
         "startup_memory": "(none)",
     }
 
@@ -229,11 +311,15 @@ async def classify_intent(
     startup_context: str = "",
 ) -> dict:
     """Classify user intent and return routing decision."""
+    context_mode = "with_context" if use_context else "without_context"
+
     #在尝试调用api之前先尝试直接离线生成命令
     if _resolve_orch_offline_first():
         offline_ctx = _orchestrator_context_for_offline(use_context=use_context)
         offline_classification = _classify_intent_offline(user_input, offline_ctx)
         if offline_classification is not None:
+            offline_classification.setdefault("context_mode", context_mode)
+            offline_classification.setdefault("offline_hit", True)
             return offline_classification
 
     #凑成完整的提示词
@@ -256,6 +342,8 @@ async def classify_intent(
             "reasoning": "Failed to parse LLM response",
             "confidence": 0.0,
             "message": "Sorry, I had trouble understanding. Could you rephrase?",
+            "context_mode": context_mode,
+            "offline_hit": False,
         }
 
     if isinstance(result, dict) and result.get("error"):
@@ -268,7 +356,13 @@ async def classify_intent(
             "task_description": "",
             "schema_error": True,
             "error_code": result.get("error_code", "unknown_error"),
+            "context_mode": context_mode,
+            "offline_hit": False,
         }
+
+    if isinstance(result, dict):
+        result.setdefault("context_mode", context_mode)
+        result.setdefault("offline_hit", False)
 
     return result
 
