@@ -1,189 +1,253 @@
-# Multi-Agent CLI System
+# ACEE Multi-Agent CLI System
 
-A terminal-based multi-agent system that uses LLM to understand natural language and dispatch tasks to specialized agents.
+ACEE 是一个基于终端的多 Agent CLI 系统。它通过编排代理识别用户意图，将请求分发到 Shell Agent、Tool Agent 或 Direct Answer 路径，并在 Textual TUI 中流式展示结果。
 
-## Architecture
+项目核心目标：
+- 把自然语言请求转换为可执行动作（命令执行或工具调用）
+- 在执行链路中引入可扩展的安全、权限和记忆机制
+- 使用统一的 A2A（Agent-to-Agent）协议封装模块间通信，便于后续扩展
 
-```
-User Input
-    │
-    ▼
-┌──────────────┐
-│ Orchestrator │──→ Intent Classification (LLM + JSON Schema)
-│    Agent     │
-└──────┬───────┘
-       │
-   ┌───┼───────────────┐
-   ▼   ▼               ▼
-┌──────┐ ┌──────────┐ ┌────────────┐
-│Shell │ │  Tool    │ │  Direct    │
-│Agent │ │  Agent   │ │  Answer    │
-└──┬───┘ └────┬─────┘ └────────────┘
-   │          │
-   ▼          ▼
-Safety     MCP Tools
-Engine     (File/System/Network)
-```
+## 1. 核心能力
 
-## Features
+- Textual TUI 交互界面：输入框、日志流、状态栏、快捷键
+- 意图编排（Orchestrator）：`shell_agent | tool_agent | direct_answer | clarification`
+- Shell 命令生成（Shell Agent）：支持 `llm | auto | offline` 三种模式
+- 本地安全引擎（Safety）：正则规则 `safe | warn | deny`
+- Tool Agent ReAct 循环：基于 LLM function-calling 选择并调用工具
+- 工具权限模型：`ALLOW | ASK | DENY`
+- 持久化记忆（Memory Agent）：`memory.json` 存储、检索、启动注入
+- A2A Runtime：统一 Request/Response 封装与 in-process transport
+- 可选 MCP 服务器接入（stdio JSON-RPC）
 
-- **TUI Interface** (Textual): Input bar, scrollable output area, live status bar
-- **Streaming Output**: Real-time subprocess output and LLM token streaming
-- **Orchestrator Agent**: Intent classification with context injection (OS, cwd, directory listing, git status, env vars)
-- **Shell Agent**: Natural language → shell commands with structured JSON output
-- **Safety Engine**: Dual-layer protection (LLM risk assessment + local rule engine)
-- **Tool Agent**: MCP-style tools with LLM function calling and ReAct loop
-- **Permission System**: Three-tier (ALLOW / ASK / DENY) per tool
-- **Memory Agent**: Persistent cross-session memory (JSON-based)
-- **Offline Shell Parser** (Bonus 2): Regex + jieba based local NL→command parsing with risk scoring
-- **A2A Runtime** (Bonus 3): In-process structured request/response routing via `src/a2a`
-- **AGENTS.md** (Bonus 4): Dynamic agent discovery and configuration via config file
-- **Tab Completion** (Task 3.3): Auto-complete commands and file names with Tab key
-- **Command History**: Navigate previous commands with Up/Down arrows
+## 2. 系统架构
 
-## Setup
+```text
+User Input (TUI)
+    |
+    v
+Orchestrator (intent classification)
+    |
+    +--> Shell Agent --> Safety --> Process Manager --> Stream Output
+    |
+    +--> Tool Agent (ReAct + Function Calling) --> Tool Registry / MCP
+    |
+    +--> Direct Answer (LLM stream)
+    |
+    +--> Clarification
 
-### Requirements
-
-- Python 3.10+ (recommended 3.11)
-- LLM API Key (OpenAI / DeepSeek / Gemini / etc.)
-
-### Installation
-
-```bash
-pip install -r requirements.txt
+Memory Agent <--> memory.json
+A2A Runtime wraps orchestrator/shell/tool/memory adapters
 ```
 
-### Configuration
+## 3. 启动流程
 
-Create a `.env` file in the project root and fill in your API credentials:
+实际入口链路：
 
-Edit `.env`:
-```
-OPENAI_API_KEY=sk-your-key-here
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4o-mini
-```
+1. `run.py` 启动，导入 `src.main.main`
+2. `src/main.py` 加载 `.env`，初始化 `MCPAdapter`
+3. 注入 TUI `on_mount`（如果配置了 `MCP_SERVERS`，先初始化 MCP）
+4. 启动 `AgentCLI`（Textual 应用）
 
-Optional LLM tuning knobs:
-```
-OPENAI_TEMPERATURE_STREAM=0.7
-OPENAI_TEMPERATURE_JSON=0.3
-OPENAI_TEMPERATURE_TOOL=0.3
-OPENAI_JSON_RETRY_COUNT=2
-
-# Optional schema debug logging
-ACEE_LLM_DEBUG_LOG=0
-ACEE_LLM_DEBUG_LOG_PATH=./logs/llm_responses.jsonl
-```
-
-- Temperature valid range is `0.0` to `2.0` (values outside range are clamped).
-- `OPENAI_JSON_RETRY_COUNT` minimum is `1`.
-- When `ACEE_LLM_DEBUG_LOG=1`, each LLM JSON attempt is appended as JSONL for debugging.
-
-For **DeepSeek**:
-```
-OPENAI_API_KEY=sk-xxx
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
-```
-
-## Usage
+启动命令：
 
 ```bash
 python run.py
 ```
 
-## Offline Shell Parser
+## 4. 用户输入模式
 
-`Shell Agent` supports an offline command parser in `src/offline_shell_parser.py`.
+`src/tui.py` 中，输入优先级如下：
 
-- Uses **regex + local NLP (`jieba`)** for Chinese-first intent parsing.
-- Produces structured risk output:
-    - `risk_level`: `low | medium | high`
-    - `risk_score`: numeric confidence in `[0, 1]`
-    - `risk_reasons`: matched risk factors (for explainability)
-- In `auto` mode, parser can set `allow_fallback=True` to let LLM handle unclear intents.
+1. `/help`：本地帮助渲染（不走 Agent）
+2. `/...`：直接 Shell 执行（不经过 Orchestrator/Safety）
+3. `!memory ...`：记忆指令（保存或搜索）
+4. 其他输入：走 Orchestrator 完整链路
 
-Configure with `ACEE_SHELL_MODE`:
+支持命令：
+- `!memory save <text>`
+- `!memory search <query>`
 
-- `auto` (default): try offline parser first, fallback to LLM only if allowed
-- `offline`: offline parser only
-- `llm`: skip offline parser and call LLM directly
+常用快捷键：
+- `Tab`：命令/文件名补全
+- `Up/Down`：命令历史
+- `Ctrl+L`：清屏
+- `Ctrl+C`：退出
+- `Esc`：关闭澄清面板
 
-### Input Modes
+## 5. 安装与环境
 
-| Mode | Prefix | Example | Behavior |
-|------|--------|---------|----------|
-| Direct Shell | `/` | `/ls -la` | Execute immediately, no LLM |
-| Natural Language | (none) | `list all python files` | LLM intent classification → agent dispatch |
-| Memory | `!memory` | `!memory save this is a Flask project` | Save/search persistent memory |
+### Python 依赖
 
-### Keyboard Shortcuts
-
-- **Tab**: Auto-complete commands and file names
-- **Up/Down**: Navigate command history
-- **Ctrl+C**: Quit
-- **Ctrl+L**: Clear output
-
-## Project Structure
-
+```bash
+pip install -r requirements.txt
 ```
+
+### 配置 `.env`
+
+最小配置：
+
+```env
+OPENAI_API_KEY=sk-xxx
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
+
+DeepSeek 示例：
+
+```env
+OPENAI_API_KEY=sk-xxx
+OPENAI_BASE_URL=https://api.deepseek.com/v1
+OPENAI_MODEL=deepseek-chat
+```
+
+LLM 调优项：
+
+```env
+OPENAI_TEMPERATURE_STREAM=0.7
+OPENAI_TEMPERATURE_JSON=0.3
+OPENAI_TEMPERATURE_TOOL=0.3
+OPENAI_JSON_RETRY_COUNT=2
+
+ACEE_LLM_DEBUG_LOG=0
+ACEE_LLM_DEBUG_LOG_PATH=./logs/llm_responses.jsonl
+```
+
+Agent 行为开关：
+
+```env
+ACEE_SHELL_MODE=llm
+ACEE_ORCH_OFFLINE_FIRST=1
+ACEE_TAG_FALLBACK_MODE=off
+MCP_SERVERS=[]
+```
+
+说明：
+- `OPENAI_TEMPERATURE_*` 范围会被限制在 `0.0~2.0`
+- `OPENAI_JSON_RETRY_COUNT` 最小值为 `1`
+- `ACEE_SHELL_MODE` 支持 `llm | auto | offline`
+
+## 6. 关键模块说明
+
+- `src/orchestrator.py`
+  - 负责意图分类与路由建议
+  - 可启用离线优先预分类（`ACEE_ORCH_OFFLINE_FIRST=1`）
+
+- `src/shell_agent.py`
+  - 生成命令计划（JSON）
+  - 支持离线解析器 `src/offline_shell_parser.py`
+  - 在执行前调用 `src/safety.py` 进行命令安全检查
+
+- `src/tool_agent.py`
+  - LLM function-calling + ReAct 循环（最多 5 轮）
+  - 调用本地注册工具和 MCP 工具
+
+- `src/memory_agent.py`
+  - 持久化 `memory.json`
+  - 启动记忆注入、相关记忆检索、手动搜索
+
+- `src/a2a/`
+  - `models.py`：协议模型（Request/Response/ErrorEnvelope/TaskState）
+  - `transport.py`：in-process transport
+  - `agents.py`：对现有 agent 的 A2A 适配器
+  - `runtime.py`：统一门面调用
+
+- `src/tools/`
+  - `registry.py`：工具注册与权限控制
+  - `file_tools.py`：文件类工具
+  - `system_tools.py`：系统信息工具
+  - `network_tools.py`：网络请求工具
+  - `mcp_adaptor.py`：MCP 服务器桥接
+
+## 7. 权限与安全
+
+### 权限模型
+
+`src/tools/registry.py` 定义三档权限：
+- `ALLOW`：自动执行
+- `ASK`：需要确认
+- `DENY`：禁止执行
+
+当前实现细节：
+- Tool Agent 对 `ASK` 会提示警告，但当前逻辑为自动放行（未阻塞等待用户确认）
+
+### 安全引擎
+
+`src/safety.py` 使用本地规则（正则）分级：
+- `deny`：高危直接拦截（如 `rm -rf`, `mkfs`, `dd`, `shutdown` 等）
+- `warn`：高风险提醒（如 `sudo`, `git push --force`, 管道执行脚本等）
+- `safe`：正常执行
+
+注意：
+- 以 `/` 前缀触发的“直接 shell 模式”不经过 `Safety`，这是当前系统的已知风险边界。
+
+## 8. 测试现状
+
+`tests/` 已包含以下方向：
+- Orchestrator 离线优先路径与上下文注入
+- A2A 历史上下文传递
+- Tool/Shell prompt 历史注入
+- Echo Agent 协议测试
+- MCP 连接测试脚本
+
+说明：
+- 部分测试依赖真实环境变量（如 `OPENAI_API_KEY` 或 `MCP_SERVERS`）
+- 仍有若干端到端交互路径可继续补测（如 TUI 澄清面板与 direct shell 安全策略）
+
+## 9. 项目结构
+
+```text
 ACEE/
-├── run.py                  # Entry point
+├── run.py
 ├── requirements.txt
-├── .env                    # API keys (not committed)
 ├── README.md
-├── memory.json             # Persistent memory store
-└── src/
-    ├── main.py             # App bootstrap
-    ├── tui.py              # Task 1: Textual TUI + Tab completion + history
-    ├── process_manager.py  # Task 1.2: Async subprocess
-    ├── llm_client.py       # Task 2.1: OpenAI API client
-    ├── orchestrator.py     # Task 2.2-2.3: Intent + dispatch + rich context
-    ├── shell_agent.py      # Task 3.1-3.3: NL → shell + clarification
-    ├── safety.py           # Task 3.2: Safety rule engine
-    ├── tool_agent.py       # Task 4.4: Tool Agent + ReAct
-    ├── memory_agent.py     # Bonus 1: Memory
-    ├── offline_shell_parser.py # Bonus 2: Local NL→command parser
-    ├── a2a/                # Bonus 3: A2A runtime/models/transport
-    └── tools/
-        ├── registry.py     # Task 4.1: MCP-style registry
-        ├── file_tools.py   # Task 4.2: File operations
-        ├── system_tools.py # Task 4.2: System info
-        └── network_tools.py# Task 4.2: HTTP/API tools
+├── AGENTS.md
+├── memory.json
+├── logs/
+│   └── llm_responses.jsonl
+├── src/
+│   ├── main.py
+│   ├── tui.py
+│   ├── orchestrator.py
+│   ├── shell_agent.py
+│   ├── offline_shell_parser.py
+│   ├── safety.py
+│   ├── tool_agent.py
+│   ├── memory_agent.py
+│   ├── process_manager.py
+│   ├── llm_client.py
+│   ├── config.py
+│   ├── schema_protocol.py
+│   ├── schema_validator.py
+│   ├── llm_debug_log.py
+│   ├── a2a/
+│   │   ├── models.py
+│   │   ├── transport.py
+│   │   ├── agents.py
+│   │   ├── runtime.py
+│   │   └── echo_agent.py
+│   └── tools/
+│       ├── registry.py
+│       ├── file_tools.py
+│       ├── system_tools.py
+│       ├── network_tools.py
+│       ├── mcp_adaptor.py
+│       └── mcp_client.py
+└── tests/
 ```
 
-## Tool Categories (MCP)
+## 10. 已知限制与后续建议
 
-| Category | Tools | Permission |
-|----------|-------|------------|
-| File | read_file, write_file, list_directory, file_exists, search_files, count_lines | ALLOW / ASK |
-| System | get_system_info, get_disk_usage, get_env_var | ALLOW |
-| Network | fetch_url, call_rest_api | ASK |
+- 直接 shell 模式绕过安全检查，可考虑统一接入 `safety.check_command`
+- `ASK` 权限尚未实现真正的人机确认闭环
+- `requirements.txt` 中 `a2a-sdk` 目前未在主流程中直接使用
+- Windows 平台下某些 shell 语义与 Linux/macOS 命令存在差异，建议增加平台化测试
 
-## Bonus Features
+---
 
-### Bonus 2: Offline Shell Parser
+如果你要基于本项目继续开发，建议优先阅读：
 
-`src/offline_shell_parser.py` provides local rule-based parsing for shell tasks.
-
-- Uses regex + optional `jieba` tokenization for Chinese-first intent parsing.
-- Supports structured safety metadata (`risk_level`, `risk_score`, `risk_reasons`).
-- Works with `ACEE_SHELL_MODE` in `auto` / `offline` / `llm` modes.
-
-### Bonus 3: A2A Runtime
-
-The A2A layer is implemented under `src/a2a` with structured envelopes and transport:
-
-- `A2ARequest` / `A2AResponse` / `TaskState` in `src/a2a/models.py`
-- `InProcessTransport` in `src/a2a/transport.py`
-- `A2ARuntime` facade in `src/a2a/runtime.py`
-
-```python
-from src.a2a import A2ARuntime
-
-runtime = A2ARuntime()
-classification = await runtime.classify_intent("list files", history=[])
-```
-
+1. `src/tui.py`（请求入口与路由）
+2. `src/orchestrator.py`（意图分类）
+3. `src/shell_agent.py` / `src/tool_agent.py`（执行链路）
+4. `src/a2a/runtime.py`（统一门面）
+5. `AGENTS.md`（Agent 架构说明）

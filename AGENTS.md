@@ -1,151 +1,334 @@
-# ACEE Agent 系统与架构详细指南
+# ACEE Agent 架构与运行指南
 
-## 1. 项目目标与简介
+本文档面向开发者，完整说明 ACEE 的 Agent 设计、执行链路、协议封装、权限与风险边界。
 
-ACEE 是一个基于终端（Terminal-based）的多 Agent 系统。该系统的核心目标是接收自然语言输入，决策用户意图，将任务分发给专有的 Agent 进行处理，执行动作，并将结果流式返回给用户。
+## 1. 设计目标
 
-本项目不仅旨在作为一个可用的 CLI 助手，还保留了通过适配器（Adapters）和进程内传输（In-process transport）向跨进程 Agent-to-Agent (A2A) 架构演进的空间。
+ACEE 的 Agent 系统围绕三个目标构建：
 
-## 2. 核心架构与心智模型
+1. 路由准确：根据用户输入在 shell、tool、direct_answer、clarification 间做稳定分发。
+2. 执行可控：在命令和工具执行链路中提供风险分层与权限约束。
+3. 扩展友好：通过 A2A 统一封装对内调用接口，便于新增 Agent 或替换底层实现。
 
-为了快速理解 ACEE 的 Agent 系统，可以将其划分为以下四个核心层级：
+## 2. 分层模型
 
-1. **交互层 (Interaction Layer)**：TUI（Textual UI）负责接收用户输入与展示流式输出。
-2. **决策层 (Decision Layer)**：Orchestrator Agent 负责理解上下文并进行意图路由。
-3. **执行层 (Execution Layer)**：Shell Agent / Tool Agent / Process Manager 负责具体任务的执行与工具调用。
-4. **治理层 (Governance Layer)**：涵盖 Safety（安全）、Permission（权限）、Memory（记忆）以及 A2A 协议封装。
+系统可以按四层理解：
 
-## 3. 启动流程与入口
+1. 交互层（Interaction Layer）
+- `src/tui.py`（Textual App）
+- 输入解析、状态展示、流式输出、快捷键、澄清面板
 
-程序的执行入口为项目根目录的 `run.py`：
-1. 将项目根目录添加至 `sys.path`。
-2. 从 `src/main.py` 导入并执行 `main()`。
-3. 加载项目根目录下的 `.env` 环境变量。
-4. 创建并启动基于 Textual 的 `AgentCLI` TUI 应用。
+2. 决策层（Decision Layer）
+- `src/orchestrator.py`
+- 意图分类、上下文注入、离线预分类
 
-**启动命令**：
-```bash
-python run.py
-```
+3. 执行层（Execution Layer）
+- `src/shell_agent.py`
+- `src/tool_agent.py`
+- `src/process_manager.py`
 
-## 4. 核心 Agent 与模块详解
+4. 治理层（Governance Layer）
+- `src/safety.py`（命令风险规则）
+- `src/tools/registry.py`（工具权限）
+- `src/memory_agent.py`（记忆）
+- `src/a2a/*`（协议与传输）
 
-### 4.1 Orchestrator Agent (编排代理)
-* **文件**：`src/orchestrator.py`
-* **职责**：
-    1. 注入操作系统、当前工作目录（cwd）等上下文信息。
-    2. 理解用户的自然语言输入意图。
-    3. 决定路由到 `shell_agent`、`tool_agent`、`direct_answer` 还是 `clarification`。
-    4. 输出结构化的决策 JSON（包含 `intent`、`reasoning`、`confidence`、`task_description` 等字段）。
+## 3. 启动与注册流程
 
-### 4.2 Shell Agent (终端代理)
-* **文件**：`src/shell_agent.py`
-* **职责**：
-    1. 将自然语言任务转换为 shell 命令的 JSON 格式。
-    2. 根据环境变量 `ACEE_SHELL_MODE` 决定使用离线解析引擎还是 LLM 直接解析。
-    3. 在命令执行前，调用 `safety.check_command` 进行本地安全后检查。
+启动入口：`run.py`
 
-### 4.3 Offline Shell Parser (离线 Shell 解析器)
-* **文件**：`src/offline_shell_parser.py`
-* **职责**：
-    1. 基于规则的意图检测引擎。
-    2. 支持通过 `jieba`（如果可用）进行中文分词。
-    3. 提取路径、扩展名、PID 等关键参数。
-    4. 评估风险得分并生成原因，针对不同操作系统生成对应的命令模板。
+真实流程：
 
-### 4.4 Tool Agent (工具代理)
-* **文件**：`src/tool_agent.py`
-* **职责**：
-    1. 采用 ReAct（Reasoning and Acting）风格的循环处理多步任务，并设有最大迭代次数限制。
-    2. 使用 LLM 的 Function-Calling 功能进行工具选择。
-    3. 通过 Tool Registry 执行工具，并将观察结果（observations）追加回消息历史。
-    4. 严格执行工具权限策略（ALLOW / ASK / DENY）。
+1. `run.py` 导入并调用 `src/main.py:main()`。
+2. `main()` 加载 `.env`，创建全局 `MCPAdapter`。
+3. `main()` 调用 `tool_agent.set_mcp_adapter(...)` 注入 MCP 能力。
+4. 若 `MCP_SERVERS` 配置非空，`main()` 给 TUI 注入异步 MCP 初始化钩子。
+5. `AgentCLI.run()` 启动，`on_mount` 中注册本地 file/system/network tools。
+6. `A2ARuntime` 在 `AgentCLI.__init__` 中创建并注册 orchestrator/shell/tool/memory/echo adapters。
 
-### 4.5 Memory Agent (记忆代理)
-* **文件**：`src/memory_agent.py`
-* **职责**：
-    1. 将记忆条目持久化保存到项目根目录的 `memory.json`。
-    2. 基于关键词打分机制检索历史信息。
-    3. 为当前的对话输入提供高度相关的上下文提示。
+## 4. 输入模式与分发优先级
 
-### 4.6 辅助及底层模块
-* **LLM Client (`src/llm_client.py`)**：提供标准对话、流式输出、JSON 强制输出（带重试机制）以及 OpenAI 风格的函数调用封装。
-* **Safety Engine (`src/safety.py`)**：包含 `DENY_PATTERNS`（硬性拦截）和 `WARN_PATTERNS`（警告）。返回统一的风险等级（`safe`|`warn`|`deny`）和原因列表。
-* **Tool Registry (`src/tools/registry.py`)**：管理工具注册、供 LLM 使用的 Schema 列表、权限查找以及执行分发。内置了文件、系统、网络等工具集。
-* **Process Manager (`src/process_manager.py`)**：提供异步子进程执行，支持流式 stdout/stderr 回调与完成状态回调。
+在 `src/tui.py` 的 `on_input_submitted` 中，输入按以下顺序处理：
 
-## 5. Agent 协作与运行链路
+1. `/help` 本地帮助
+- 不调用 Orchestrator
+- 直接在 UI 渲染帮助文档
 
-用户在 TUI 提交输入后，请求会进入以下三种模式之一：
+2. `/` 前缀直接命令
+- 调用 `process_manager.run_command`
+- 不经过 Shell Agent
+- 不经过 Safety
 
-### 5.1 默认自然语言链路 (Orchestrated NL Mode)
-这是最复杂的协作链路，通过 `A2ARuntime` 路由：
-1. TUI 接收输入并读取相关的 Memory 上下文。
-2. Orchestrator 识别意图。
-3. 根据意图分发：
-    * **Shell 路径**：生成命令 -> 安全检查 (Safety) -> Process Manager 进程执行。
-    * **Tool 路径**：进入 ReAct 循环 -> 调用 Tool Registry 中的工具 -> 汇总输出。
-4. 将最终结果渲染至界面，并追加到会话历史。
+3. `!memory` 命令
+- `!memory save <text>` 保存记忆
+- `!memory search <query>` 查询记忆
 
-### 5.2 直接命令链路 (Direct Shell Mode)
-* **触发方式**：以 `/` 开头的输入（例如 `/ls -la`）。
-* **链路**：TUI 直接调用 Process Manager 异步执行并流式输出。
-* **注意**：此模式属于高权限快路径，**不经过** Orchestrator、Shell Agent 或 Safety Engine 安全检查。
+4. 默认自然语言
+- 进入 Orchestrator 分类
+- 根据 intent 分发 Shell/Tool/Direct Answer
 
-### 5.3 记忆命令链路 (Memory Command Mode)
-* **触发方式**：使用 `!memory` 前缀。
-* **支持命令**：`!memory save <text>` 或 `!memory search <query>`。
-* **链路**：直接交由 Memory Agent 处理并读写 `memory.json`。
+## 5. Orchestrator Agent
 
-## 6. A2A (Agent-to-Agent) 运行链路
+文件：`src/orchestrator.py`
 
-当前实现为进程内（In-process）A2A 架构，相关代码位于 `src/a2a/` 目录下。
+### 5.1 意图空间
 
-**运行机制**：
-1. TUI 不再直接调用各 Agent 的底层函数，而是统一调用 `A2ARuntime` 门面（Facade）。
-2. Runtime 将请求封装为 `A2ARequest` 发送给 `InProcessTransport`。
-3. Transport 根据 `to_agent` 标识将请求分发给对应的 Agent Adapter（例如 orchestrator/shell/tool/memory adapter）。
-4. Adapter 调用原有的业务函数，并将结果包装为 `A2AResponse` 返回。
-5. A2A 层负责维护统一的任务生命周期状态（`created`, `running`, `waiting`, `completed`, `failed`, `cancelled`）以及标准的错误模型（`ErrorEnvelope`）。
+`intent` 枚举：
+- `shell_agent`
+- `tool_agent`
+- `direct_answer`
+- `clarification`
 
-## 7. 环境配置与状态管理
+### 5.2 输出契约
 
-**环境变量 (直接影响 Agent 行为)**：
-* `OPENAI_API_KEY`：API 密钥。
-* `OPENAI_BASE_URL`：API 基础地址。
-* `OPENAI_MODEL`：指定驱动 Agent 的大语言模型。
-* `ACEE_SHELL_MODE`：控制 Shell Agent 行为：
-    * `auto`：优先尝试离线规则解析，允许回退到 LLM。
-    * `offline`：仅使用离线解析，解析失败则拒绝执行。
-    * `llm`：跳过离线解析，直接使用 LLM 生成命令。
+通过 JSON Schema 校验后返回：
+- `intent`
+- `reasoning`
+- `confidence`（0~1）
+- `message`
+- `task_description`
 
-**状态管理**：
-* 持久化状态：`memory.json`。
-* 内存状态：TUI 的会话历史、A2A Runtime 实例上下文、Tool Registry 与权限表。
+### 5.3 关键机制
 
-## 8. 风险边界与技术债
+1. 上下文注入
+- OS、shell、cwd、目录快照、git 状态、环境变量摘要
+- `context_signals` 包含 repo_tags、directory_risk 等信号
 
-1. **安全绕过**：`/` 直接命令目前绕过 Safety Engine，属于潜在的风险缺口。
-2. **权限交互待完善**：对于标记为 `ASK` 权限的工具（如网络工具），目前系统会在输出警告后自动放行，若需严格管控，需要增加显式的用户确认交互逻辑。
-3. **测试覆盖**：`tests/` 目录目前为空，亟需补充路由决策与安全引擎的回归测试。
-4. **依赖未激活**：`requirements.txt` 中包含 `a2a-sdk`，但在当前源码中暂未实际 import，这属于遗留的技术债。
+2. 离线优先分类
+- 开关：`ACEE_ORCH_OFFLINE_FIRST`（默认开）
+- 先走 `offline_shell_parser.generate_command_offline`
+- 若命中且不允许 fallback，可直接返回分类结果，跳过 LLM
 
-## 9. 扩展指南
+3. 失败兜底
+- LLM/Schema 失败时回退到 `clarification` 或保守回答
 
-### 9.1 新增 Agent 的最小步骤
-若要新增一个如 `planner_agent` 的模块，推荐以下接入路径：
-1. 在 `src/` 目录下实现核心业务逻辑函数（如 `planner_agent.py`）。
-2. 在 `src/a2a/agents.py` 中增加对应的 Adapter 类和 Capability 定义。
-3. 在 `src/a2a/runtime.py` 中注册该 Adapter 并提供对外调用的 facade 方法。
-4. 在 `src/orchestrator.py` 的提示词与意图枚举中添加新 Agent 对应的 Intent。
-5. 在 `src/tui.py` 的 Orchestrated 路由逻辑中增加处理该新 Intent 的分支。
+## 6. Shell Agent
 
-### 9.2 新增 Tool
-1. 在 `src/tools/` 目录下（如新建或现有文件中）实现异步的工具处理函数。
-2. 在工具集的 `register_all()` 方法中注册工具 Schema 和默认权限。
-3. 注册后，Tool Agent 的 Function-Calling 循环即可自动发现并调用该工具。
+文件：`src/shell_agent.py`
 
-### 9.3 强化系统安全 (Safety)
-1. 在 `src/safety.py` 中扩展 `DENY_PATTERNS` 或 `WARN_PATTERNS` 的正则表达式。
-2. （可选）修改 `process_manager` 或直接命令的路由链路，为 `/` 开头的命令强制施加安全检查。
-3. 增加对被拦截或高风险命令的日志审计功能。
+### 6.1 输入输出
+
+输入：`task_description + user_input + history`
+
+输出字段：
+- `intent`: `run_command | ask_clarification | refuse`
+- `command`
+- `reason`
+- `risk_level`
+- `clarification_options`
+- `safety_check`
+
+### 6.2 三种模式
+
+通过 `ACEE_SHELL_MODE` 控制：
+
+1. `llm`（默认）
+- 直接调用 LLM 生成命令
+
+2. `auto`
+- 先离线解析
+- 离线不确定时允许回退到 LLM
+
+3. `offline`
+- 只允许离线解析
+- 无可执行结果时返回拒绝
+
+### 6.3 澄清交互
+
+当返回 `ask_clarification`：
+- TUI 挂载 `OptionList` 面板
+- 用户选择后以新输入再次进入编排流程
+
+## 7. Offline Shell Parser
+
+文件：`src/offline_shell_parser.py`
+
+能力：
+- 基于 regex + 可选 `jieba` 分词
+- 识别操作意图（list/search/read/delete/move/kill/system info 等）
+- 提取 path/ext/pid 等参数
+- 生成跨平台命令模板（Windows/Unix）
+- 输出 `risk_score` 和 `risk_reasons`
+
+注意：
+- `jieba` 为可选依赖，缺失时使用回退分词方案。
+
+## 8. Safety Engine
+
+文件：`src/safety.py`
+
+规则分层：
+
+1. `DENY_PATTERNS`
+- `rm -rf`、`mkfs`、`dd if=`、`shutdown`、`reboot`、危险 SQL 等
+- 命中则直接 `deny`
+
+2. `WARN_PATTERNS`
+- `sudo`、`git push --force`、`git reset --hard`、`curl|sh` 等
+- 命中则 `warn`
+
+返回：
+- `{"level": "safe|warn|deny", "reasons": [...]}`
+
+风险边界：
+- 直接 shell（`/` 前缀）不经过该引擎。
+
+## 9. Tool Agent
+
+文件：`src/tool_agent.py`
+
+### 9.1 循环机制
+
+实现 ReAct 风格循环，最多 5 轮：
+
+1. LLM 选择工具（function calling）
+2. 执行工具，回填 tool message
+3. 继续让 LLM 决定下一步
+4. 无工具调用时输出最终结果
+
+### 9.2 权限策略
+
+从 `src/tools/registry.py` 读取权限：
+- `ALLOW`
+- `ASK`
+- `DENY`
+
+当前实现细节：
+- `DENY` 会拦截
+- `ASK` 仅提示警告后自动放行（尚未实现真正用户确认）
+
+### 9.3 MCP 工具
+
+当工具名包含 `__` 且 MCP 适配器存在时，转到 MCP 执行路径。
+
+## 10. Tool Registry 与本地工具
+
+目录：`src/tools/`
+
+1. `registry.py`
+- 工具注册、列举、执行、权限查询
+
+2. `file_tools.py`
+- `read_file`, `write_file`, `list_directory`, `file_exists`, `search_files`, `count_lines`
+
+3. `system_tools.py`
+- `get_system_info`, `get_disk_usage`, `get_env_var`
+
+4. `network_tools.py`
+- `fetch_url`, `call_rest_api`
+
+5. `mcp_adaptor.py`
+- 启动 MCP server 子进程
+- 拉取 MCP 工具列表并转换为 OpenAI tool schema
+- 执行 MCP tools/call
+
+## 11. Memory Agent
+
+文件：`src/memory_agent.py`
+
+存储：`memory.json`
+
+关键能力：
+
+1. 保存
+- `save_memory_record` 持久化记录（包含 tags、metadata、timestamp）
+- 支持 `auto_tag`，会根据本地规则推断标签
+
+2. 检索
+- `search_memory(query)` 按内容与标签评分
+- `get_relevant_context(user_input)` 返回 top-k 相关记忆文本
+
+3. 启动注入
+- `get_startup_context(limit)` 结合标签权重和时间衰减排序
+- TUI 启动后将高相关记忆注入会话
+
+## 12. A2A 协议与运行时
+
+目录：`src/a2a/`
+
+### 12.1 协议模型
+
+- `A2ARequest`
+- `A2AResponse`
+- `TaskState`
+- `ErrorEnvelope`
+
+### 12.2 传输层
+
+`InProcessTransport.send(request)`：
+- 根据 `to_agent` 查找 handler
+- 捕获可恢复异常并返回标准失败响应
+- 维护 state history
+
+### 12.3 Runtime 门面
+
+`A2ARuntime` 封装对外方法：
+- `classify_intent`
+- `generate_command`
+- `handle_tool_task`
+- `get_relevant_context`
+- `get_startup_context`
+- `save_auto_memory`
+- `test_echo`
+
+## 13. 配置项（影响 Agent 行为）
+
+LLM 相关：
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `OPENAI_MODEL`
+- `OPENAI_TEMPERATURE_STREAM`
+- `OPENAI_TEMPERATURE_JSON`
+- `OPENAI_TEMPERATURE_TOOL`
+- `OPENAI_JSON_RETRY_COUNT`
+
+Agent 行为：
+- `ACEE_SHELL_MODE`
+- `ACEE_ORCH_OFFLINE_FIRST`
+- `ACEE_TAG_FALLBACK_MODE`
+- `ACEE_LLM_DEBUG_LOG`
+- `ACEE_LLM_DEBUG_LOG_PATH`
+- `MCP_SERVERS`
+
+## 14. 测试覆盖
+
+`tests/` 当前覆盖点：
+- Orchestrator 离线优先与上下文注入
+- A2A 历史消息透传
+- Shell/Tool prompt 历史清洗
+- Echo Agent 协议连通
+- MCP 连接脚本
+
+仍可加强：
+- TUI 交互端到端测试
+- direct shell 风险治理策略测试
+- Tool Agent ASK 的人工确认闭环测试
+
+## 15. 已知问题与技术债
+
+1. direct shell (`/`) 绕过 Safety。
+2. Tool Agent 的 `ASK` 当前自动放行。
+3. `requirements.txt` 包含 `a2a-sdk`，但主流程未直接使用。
+4. MCP 适配层在不同平台下的子进程通信稳定性仍需持续验证。
+
+## 16. 扩展建议
+
+### 16.1 新增 Agent
+
+1. 在 `src/` 实现业务逻辑
+2. 在 `src/a2a/agents.py` 增加 Adapter 与 capabilities
+3. 在 `src/a2a/runtime.py` 注册并暴露门面方法
+4. 在 `src/orchestrator.py` 扩展 intent 和路由提示
+5. 在 `src/tui.py` 接入分发分支
+
+### 16.2 新增 Tool
+
+1. 在 `src/tools/*.py` 新增异步 handler
+2. 在 `register_all()` 注册 schema 与权限
+3. 确认 Tool Agent 能通过 function-calling 发现并调用
+
+### 16.3 强化安全治理
+
+1. 扩展 `DENY_PATTERNS` 与 `WARN_PATTERNS`
+2. 给 direct shell 路径加入预检查
+3. 对 `ASK` 实现阻塞式用户确认
