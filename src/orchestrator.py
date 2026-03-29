@@ -3,6 +3,7 @@
 import os
 import platform
 import subprocess
+import importlib
 from datetime import datetime, timezone
 
 from . import llm_client
@@ -129,6 +130,97 @@ def _build_system_prompt(use_context: bool, startup_context: str = "") -> str:
     return SYSTEM_PROMPT.format(**ctx)
 
 
+def _resolve_orch_offline_first() -> bool:
+    """Control offline pre-classification via ACEE_ORCH_OFFLINE_FIRST."""
+    raw = os.getenv("ACEE_ORCH_OFFLINE_FIRST", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _orchestrator_context_for_offline(use_context: bool) -> dict:
+    """Build context shape expected by offline_shell_parser."""
+    if not use_context:
+        return {
+            "os_info": "(not injected)",
+            "shell": "(not injected)",
+            "cwd": "(not injected)",
+            "dir_listing": "(not injected)",
+        }
+
+    ctx = _get_context()
+    return {
+        "os_info": ctx.get("os_info", ""),
+        "shell": ctx.get("shell_type", ""),
+        "cwd": ctx.get("cwd", ""),
+        "dir_listing": ctx.get("dir_listing", ""),
+    }
+
+
+def _map_offline_to_classification(user_input: str, offline_result: dict) -> dict | None:
+    """Map offline parser output into orchestrator classification contract."""
+    intent = str(offline_result.get("intent", "")).strip().lower()
+    command = str(offline_result.get("command", "")).strip()
+    reason = str(offline_result.get("reason", "Offline parser decision")).strip()
+    allow_fallback = bool(offline_result.get("allow_fallback", False))
+
+    if allow_fallback:
+        return None
+
+    if intent == "run_command" and command:
+        return {
+            "intent": "shell_agent",
+            "reasoning": f"Offline pre-classifier hit: {reason}",
+            "confidence": 0.93,
+            "message": None,
+            "task_description": user_input,
+        }
+
+    if intent == "ask_clarification":
+        options = offline_result.get("clarification_options", [])
+        if isinstance(options, list) and options:
+            option_text = " | ".join(str(item) for item in options[:3])
+            message = f"{reason}\nOptions: {option_text}"
+        else:
+            message = reason
+        return {
+            "intent": "clarification",
+            "reasoning": "Offline pre-classifier needs clarification",
+            "confidence": 0.85,
+            "message": message,
+            "task_description": "",
+        }
+
+    if intent == "refuse":
+        return {
+            "intent": "clarification",
+            "reasoning": "Offline pre-classifier refused",
+            "confidence": 0.82,
+            "message": reason,
+            "task_description": "",
+        }
+
+    return None
+
+
+def _classify_intent_offline(user_input: str, context: dict) -> dict | None:
+    """Try local/offline shell intent pre-classification before any API call."""
+    package = __package__ or "src"
+    module_name = f"{package}.offline_shell_parser"
+
+    try:
+        module = importlib.import_module(module_name)
+        fn = getattr(module, "generate_command_offline", None)
+        if not callable(fn):
+            return None
+
+        offline_result = fn(user_input, user_input, context)
+        if not isinstance(offline_result, dict):
+            return None
+
+        return _map_offline_to_classification(user_input, offline_result)
+    except (ImportError, AttributeError, TypeError):
+        return None
+
+
 async def classify_intent(
     user_input: str,
     history: list[dict] | None = None,
@@ -137,6 +229,12 @@ async def classify_intent(
     startup_context: str = "",
 ) -> dict:
     """Classify user intent and return routing decision."""
+    if _resolve_orch_offline_first():
+        offline_ctx = _orchestrator_context_for_offline(use_context=use_context)
+        offline_classification = _classify_intent_offline(user_input, offline_ctx)
+        if offline_classification is not None:
+            return offline_classification
+
     #凑成完整的提示词
     system_msg = _build_system_prompt(use_context=use_context, startup_context=startup_context)
 
