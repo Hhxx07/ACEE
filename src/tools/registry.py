@@ -70,11 +70,6 @@ def get_tool_permission(name: str) -> str:
     return _PERMISSIONS.get(name, "ASK")
 
 
-def set_tool_permission(name: str, level: str): # 无人调用？
-    if level in PERMISSION_LEVELS:
-        _PERMISSIONS[name] = level
-
-
 async def execute_tool(name: str, arguments: dict) -> Any:
     """Execute a registered tool with given arguments."""
     tool = _TOOLS.get(name)

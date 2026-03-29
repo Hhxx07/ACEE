@@ -482,7 +482,6 @@ class AgentCLI(App):
             await self._dispatch_shell(user_input, classification, output, sb)
         elif intent == "tool_agent": #大多数命令行都会被判定为tool_agent，所以可能看不到命令执行提示。
             await self._dispatch_tool(user_input, classification, output, sb)
-            #await self._dispatch_shell(user_input, classification, output, sb)
         elif intent == "clarification":
             # 强制改为 shell_agent 意图
             intent = "shell_agent"
