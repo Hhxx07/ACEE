@@ -504,7 +504,8 @@ class AgentCLI(App):
         # 5. 【关键逻辑】：将组件添加到 Container 中（而不是直接加到 Log 里）
         await interaction_container.mount(clarification_list)
 
-        # 6. 自动聚焦
+        # 6. 【关键修复】：等待组件渲染完成后再聚焦
+        await asyncio.sleep(0.1)
         clarification_list.focus()
     
     async def on_option_list_option_selected(self, event: OptionList.OptionSelected):

@@ -23,7 +23,7 @@ def main():
     servers_config = _parse_mcp_config()
     
     # Register cleanup on exit
-    atexit.register(_cleanup_mcp)
+    atexit.register(_cleanup_mcp) #注册程序退出时自动执行的清理函数
     
     # Set MCP adapter for tool_agent
     from .tool_agent import set_mcp_adapter
@@ -40,9 +40,9 @@ def main():
     app.run()
 
 
-def _parse_mcp_config() -> list[dict] | None:
+def _parse_mcp_config() -> list[dict] | None: 
     """Parse MCP servers config from env."""
-    config_str = os.getenv("MCP_SERVERS", "[]")
+    config_str = os.getenv("MCP_SERVERS", "[]") # 这里返回的是一个字典（json转字典）
     if not config_str or config_str.strip() == "[]":
         return None
     

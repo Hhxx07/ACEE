@@ -4,10 +4,15 @@ import json
 import subprocess
 from typing import List, Dict, Any, Optional
 
-# 导入工具模块以触发注册
+# 导入工具模块并注册本地工具
 from . import file_tools
 from . import network_tools
 from . import system_tools
+
+# 注册所有本地工具
+file_tools.register_all()
+network_tools.register_all()
+system_tools.register_all()
 
 class MCPAdapter:
     """管理 MCP servers 连接和工具转换"""
