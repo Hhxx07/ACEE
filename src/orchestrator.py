@@ -154,7 +154,7 @@ def _orchestrator_context_for_offline(use_context: bool) -> dict:
         "dir_listing": ctx.get("dir_listing", ""),
     }
 
-
+#重新包装离线解析器的结果，决定是不是要走api
 def _map_offline_to_classification(user_input: str, offline_result: dict) -> dict | None:
     """Map offline parser output into orchestrator classification contract."""
     intent = str(offline_result.get("intent", "")).strip().lower()
@@ -229,6 +229,7 @@ async def classify_intent(
     startup_context: str = "",
 ) -> dict:
     """Classify user intent and return routing decision."""
+    #在尝试调用api之前先尝试直接离线生成命令
     if _resolve_orch_offline_first():
         offline_ctx = _orchestrator_context_for_offline(use_context=use_context)
         offline_classification = _classify_intent_offline(user_input, offline_ctx)
