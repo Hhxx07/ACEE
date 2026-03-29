@@ -1,16 +1,21 @@
 """Bonus 1: Memory Agent — persistent cross-session memory."""
 
 import json
+import math
 import os
 import re
 import tempfile
 import time
+from datetime import datetime
 from typing import Any
 
 MEMORY_FILE = os.path.join(os.path.dirname(__file__), "..", "memory.json")
 
 TAG_FALLBACK_MODE = os.getenv("ACEE_TAG_FALLBACK_MODE", "off").strip().lower()
 TAG_CONFIDENCE_THRESHOLD = 0.45
+STARTUP_MEMORY_LIMIT = 5
+STARTUP_CONTEXT_MAX_CHARS = 1200
+STARTUP_DECAY_PER_DAY = 0.08
 
 TAG_KEYWORDS: dict[str, tuple[str, ...]] = {
     "shell": ("/", "cmd", "command", "shell", "terminal", "powershell", "bash"),
@@ -28,6 +33,15 @@ CONTROL_TAGS = {
     "help_command": ["help", "command"],
     "orchestrated_input": ["orchestrator"],
     "memory_manual": ["memory", "manual"],
+}
+
+STARTUP_TAG_WEIGHTS: dict[str, float] = {
+    "orchestrator": 1.2,
+    "direct_answer": 1.0,
+    "shell": 0.9,
+    "tool": 0.8,
+    "memory": 0.7,
+    "manual_note": 0.6,
 }
 
 
@@ -101,6 +115,32 @@ def _normalize_entry(entry: dict, fallback_id: int) -> dict:
         "timestamp": str(entry.get("timestamp", time.strftime("%Y-%m-%d %H:%M:%S"))),
         "metadata": metadata,
     }
+
+
+def _parse_timestamp(ts: str) -> float:
+    try:
+        dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        return dt.timestamp()
+    except ValueError:
+        return time.time()
+
+
+def _startup_relevance_score(entry: dict, now_ts: float) -> float:
+    tags = _to_list(entry.get("tags", []))
+    metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+    source = str(metadata.get("source", "")).strip().lower()
+
+    tag_score = 0.0
+    for tag in tags:
+        tag_score += STARTUP_TAG_WEIGHTS.get(tag.lower(), 0.0)
+    if source in {"orchestrated_input", "direct_shell", "memory_manual"}:
+        tag_score += 0.25
+
+    ts = _parse_timestamp(str(entry.get("timestamp", "")))
+    age_days = max((now_ts - ts) / 86400.0, 0.0)
+    freshness = math.exp(-STARTUP_DECAY_PER_DAY * age_days)
+
+    return round(tag_score + freshness, 6)
 
 
 def _next_id(memories: list[dict]) -> int:
@@ -236,3 +276,44 @@ def get_relevant_context(user_input: str) -> str:
     for m in results[:3]:
         lines.append(f"  - [{m['timestamp']}] {m['content']}")
     return "\n".join(lines)
+
+
+def get_startup_memories(limit: int = STARTUP_MEMORY_LIMIT) -> list[dict]:
+    """Return startup memories ranked by tag-priority and time decay."""
+    memories = _load()
+    if not memories:
+        return []
+
+    now_ts = time.time()
+    ranked: list[dict] = []
+    for idx, memory in enumerate(memories):
+        normalized = _normalize_entry(memory, fallback_id=idx + 1)
+        score = _startup_relevance_score(normalized, now_ts)
+        ranked.append({**normalized, "_startup_score": score})
+
+    ranked.sort(key=lambda item: (item["_startup_score"], item["timestamp"], item["id"]), reverse=True)
+    return ranked[: max(limit, 0)]
+
+
+def format_startup_context(memories: list[dict], max_chars: int = STARTUP_CONTEXT_MAX_CHARS) -> str:
+    """Format startup memories into a compact text block for prompt/history injection."""
+    if not memories:
+        return ""
+
+    lines = ["[Startup memories]"]
+    for memory in memories:
+        tags = ", ".join(_to_list(memory.get("tags", []))) or "none"
+        line = f"- [{memory.get('timestamp', '')}] ({tags}) {memory.get('content', '')}".strip()
+        if len("\n".join(lines + [line])) > max_chars:
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def get_startup_context(limit: int = STARTUP_MEMORY_LIMIT) -> dict:
+    """Get startup context payload containing ranked memories and formatted context text."""
+    memories = get_startup_memories(limit=limit)
+    return {
+        "memory_context": format_startup_context(memories),
+        "memories": memories,
+    }

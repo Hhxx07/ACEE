@@ -71,10 +71,15 @@ OPENAI_TEMPERATURE_STREAM=0.7
 OPENAI_TEMPERATURE_JSON=0.3
 OPENAI_TEMPERATURE_TOOL=0.3
 OPENAI_JSON_RETRY_COUNT=2
+
+# Optional schema debug logging
+ACEE_LLM_DEBUG_LOG=0
+ACEE_LLM_DEBUG_LOG_PATH=./logs/llm_responses.jsonl
 ```
 
 - Temperature valid range is `0.0` to `2.0` (values outside range are clamped).
 - `OPENAI_JSON_RETRY_COUNT` minimum is `1`.
+- When `ACEE_LLM_DEBUG_LOG=1`, each LLM JSON attempt is appended as JSONL for debugging.
 
 For **DeepSeek**:
 ```

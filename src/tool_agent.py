@@ -30,8 +30,18 @@ async def handle_task(task_description: str, user_input: str, on_output=None) ->
 
     all_output = []
 
-    for iteration in range(MAX_ITERATIONS):
-        result = await llm_client.chat_function_call(messages, tools)
+    for _ in range(MAX_ITERATIONS):
+        result = await llm_client.chat_function_call(
+            messages,
+            tools,
+            caller="tool_agent",
+        )
+
+        if result.get("error"):
+            all_output.append(
+                f"[Tool Agent Error] {result.get('error')} Please try again with clearer input."
+            )
+            break
 
         # If LLM wants to call tools
         if result.get("tool_calls"):

@@ -3,8 +3,10 @@
 import os
 import platform
 import subprocess
-import json
+from datetime import datetime, timezone
+
 from . import llm_client
+from .schema_protocol import SCHEMA_KIND_ORCHESTRATOR
 
 SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system. Your job is to understand the user's intent and route it to the appropriate sub-agent.
 
@@ -17,6 +19,9 @@ SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system. Y
 - Git status: {git_status}
 - Environment: {env_vars}
 
+## Startup Memory Snapshot
+{startup_memory}
+
 ## Available Agents
 1. **shell_agent** — Execute system/shell commands (file operations, process management, system admin, etc.)
 2. **tool_agent** — Use built-in tools for structured tasks (read/write files, get system info, fetch URLs, search files, etc.)
@@ -24,13 +29,19 @@ SYSTEM_PROMPT = """You are the Orchestrator Agent of a multi-agent CLI system. Y
 4. **clarification** — When the user's intent is ambiguous and you need more information.
 
 ## Instructions
-Analyze the user's input and respond with a JSON object:
+Analyze the user's input and respond with a JSON object using this envelope:
 {{
-  "intent": "shell_agent" | "tool_agent" | "direct_answer" | "clarification",
-  "reasoning": "Brief explanation of why you chose this intent",
-  "confidence": 0.0 to 1.0,
-  "message": "Your direct answer (only if intent is direct_answer or clarification)",
-  "task_description": "Clear description of what the sub-agent should do (for shell_agent/tool_agent)"
+    "ok": true,
+    "kind": "orchestrator.classification",
+    "data": {{
+        "intent": "shell_agent" | "tool_agent" | "direct_answer" | "clarification",
+        "reasoning": "Brief explanation of why you chose this intent",
+        "confidence": 0.0 to 1.0,
+        "message": "Your direct answer (only if intent is direct_answer or clarification)",
+        "task_description": "Clear description of what the sub-agent should do (for shell_agent/tool_agent)"
+    }},
+    "error": null,
+    "meta": {{}}
 }}
 
 ## Routing Guidelines
@@ -49,13 +60,16 @@ def _get_git_status() -> str:
     try:
         result = subprocess.run(
             ["git", "status", "--short"],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             lines = result.stdout.strip().split("\n")[:20]
             return "\n".join(lines)
         return "(clean or not a git repo)"
-    except Exception:
+    except (OSError, subprocess.SubprocessError, TimeoutError):
         return "(git not available)"
 
 
@@ -68,7 +82,7 @@ def _get_context() -> dict:
     try:
         entries = os.listdir(cwd)[:100]
         dir_listing = ", ".join(entries) if entries else "(empty)"
-    except Exception:
+    except OSError:
         dir_listing = "(cannot read)"
 
     git_status = _get_git_status()
@@ -88,11 +102,43 @@ def _get_context() -> dict:
     }
 
 
-async def classify_intent(user_input: str, history: list[dict] | None = None) -> dict:
+def _empty_context() -> dict:
+    """Context placeholders when environment injection is disabled."""
+    return {
+        "os_info": "(not injected)",
+        "cwd": "(not injected)",
+        "dir_listing": "(not injected)",
+        "git_status": "(not injected)",
+        "shell_type": "(not injected)",
+        "env_vars": "(not injected)",
+        "startup_memory": "(none)",
+    }
+
+
+def _sanitize_startup_memory(startup_context: str, max_chars: int = 1200) -> str:
+    cleaned = " ".join(startup_context.split())
+    if not cleaned:
+        return "(none)"
+    return cleaned[:max_chars]
+
+
+def _build_system_prompt(use_context: bool, startup_context: str = "") -> str:
+    """Build orchestrator prompt with optional environment context injection."""
+    ctx = _get_context() if use_context else _empty_context()
+    ctx["startup_memory"] = _sanitize_startup_memory(startup_context)
+    return SYSTEM_PROMPT.format(**ctx)
+
+
+async def classify_intent(
+    user_input: str,
+    history: list[dict] | None = None,
+    *,
+    use_context: bool = True,
+    startup_context: str = "",
+) -> dict:
     """Classify user intent and return routing decision."""
-    ctx = _get_context()
     #凑成完整的提示词
-    system_msg = SYSTEM_PROMPT.format(**ctx)
+    system_msg = _build_system_prompt(use_context=use_context, startup_context=startup_context)
 
     messages = [{"role": "system", "content": system_msg}]
     #有历史记录的话，把最后面的记录读进message
@@ -100,7 +146,11 @@ async def classify_intent(user_input: str, history: list[dict] | None = None) ->
         messages.extend(history[-6:])  # Last 3 exchanges for context
     messages.append({"role": "user", "content": user_input})
 
-    result = await llm_client.chat_json(messages)
+    result = await llm_client.chat_json(
+        messages,
+        schema_kind=SCHEMA_KIND_ORCHESTRATOR,
+        caller="orchestrator",
+    )
     if result is None:
         return {
             "intent": "direct_answer",
@@ -108,4 +158,51 @@ async def classify_intent(user_input: str, history: list[dict] | None = None) ->
             "confidence": 0.0,
             "message": "Sorry, I had trouble understanding. Could you rephrase?",
         }
+
+    if isinstance(result, dict) and result.get("error"):
+        reason = str(result.get("error"))
+        return {
+            "intent": "direct_answer",
+            "reasoning": f"Schema validation failed: {reason}",
+            "confidence": 0.0,
+            "message": "I could not validate your request format. Please try again with clearer wording.",
+        }
+
     return result
+
+
+def _build_ab_diff(with_context: dict, without_context: dict) -> dict:
+    """Create a compact field-level difference summary for A/B comparison."""
+    fields = ["intent", "confidence", "reasoning", "message", "task_description"]
+    diff: dict = {}
+    for field in fields:
+        a_value = with_context.get(field)
+        b_value = without_context.get(field)
+        if a_value != b_value:
+            diff[field] = {
+                "with_context": a_value,
+                "without_context": b_value,
+            }
+    return {
+        "changed": bool(diff),
+        "changed_fields": sorted(diff.keys()),
+        "details": diff,
+    }
+
+
+async def classify_intent_compare_context(
+    user_input: str,
+    history: list[dict] | None = None,
+) -> dict:
+    """Run two passes (with/without context injection) for side-by-side comparison."""
+    with_context = await classify_intent(user_input, history=history, use_context=True)
+    without_context = await classify_intent(user_input, history=history, use_context=False)
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model": llm_client.MODEL,
+        "user_input": user_input,
+        "with_context": with_context,
+        "without_context": without_context,
+        "diff": _build_ab_diff(with_context=with_context, without_context=without_context),
+    }

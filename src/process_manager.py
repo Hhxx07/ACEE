@@ -8,10 +8,13 @@ from typing import Callable, Awaitable
 #为了正常显示中文，首先读取系统的编码方式
 SYSTEM_ENCODING = locale.getpreferredencoding()
 
-
+#这里是task1.2的实现
 async def run_command(
     command: str,
+
+    #实时接受文本
     on_output: Callable[[str], Awaitable[None]],
+
     on_done: Callable[[int], Awaitable[None]] | None = None,
     cwd: str | None = None,
 ) -> int:
@@ -44,7 +47,6 @@ async def run_command(
                 break
             #为了可以正常显示汉字字符，这里不能用utf-8解码格式
             #如果没有办法读取的字符用占位符替代掉
-
             #先读取更严苛的英文编码，然后在报错的时候尝试中文编码。
 
             try:
@@ -54,12 +56,13 @@ async def run_command(
 
             await on_output(prefix + text)
 
-    #同时读取正常输出和错误输出连个出口的东西，不会卡死
+    #同时读取正常输出和错误输出连个出口的东西，不会卡死 -- 异步实现
     await asyncio.gather(
         _read_stream(proc.stdout, prefix="[OUT]"),
         _read_stream(proc.stderr, prefix="[ERR]"),
     )
 
+    #确认输出完成了就结束现在的进程
     exit_code = await proc.wait()
     if on_done:
         await on_done(exit_code)

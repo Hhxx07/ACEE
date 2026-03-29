@@ -118,6 +118,9 @@ class AgentCLI(App):
         self.conversation_history: list[dict] = []
         self._current_task: asyncio.Task | None = None
         self._a2a_runtime = A2ARuntime()
+        self._startup_memory_context: str = ""
+        self._startup_memories: list[dict] = []
+        self._startup_history_injected = False
         # Task 3.3 / 进阶: Command history
         self._command_history: list[str] = []
         self._history_index: int = -1
@@ -134,7 +137,7 @@ class AgentCLI(App):
         yield Container(id="interaction-container")
         yield Footer()
 
-    def on_mount(self):
+    async def on_mount(self):
         # Register all MCP tools
         file_tools.register_all()
         system_tools.register_all()
@@ -157,7 +160,38 @@ class AgentCLI(App):
             title="ACEE-Multi-Agent CLI",
             border_style="cyan",
         ))
+        await self._inject_startup_memories(output)
         self._update_status_time()
+
+    async def _inject_startup_memories(self, output: RichLog):
+        """Load startup memories once and inject them into UI and conversation history."""
+        try:
+            payload = await self._a2a_runtime.get_startup_context(limit=5)
+        except Exception:
+            return
+
+        context = str(payload.get("memory_context", "") or "")
+        memories = payload.get("startup_memories", [])
+        if not context:
+            return
+
+        self._startup_memory_context = context
+        self._startup_memories = memories if isinstance(memories, list) else []
+
+        output.write(Panel(
+            context,
+            title="Startup Memory Injection",
+            border_style="green",
+        ))
+
+        if not self._startup_history_injected:
+            self.conversation_history.append(
+                {
+                    "role": "assistant",
+                    "content": f"{context}",
+                }
+            )
+            self._startup_history_injected = True
 
     def _update_status_time(self):
         """Periodically update the status bar time."""
@@ -368,6 +402,7 @@ class AgentCLI(App):
         sb.set_status("Ready")
         
 
+    #这里的几个任务都是单线程反复跳的，任务更自然
     @work(thread=False)
     async def _handle_shell_direct(self, command: str):
         """Direct shell execution (/ prefix) — Task 1.2."""
@@ -378,9 +413,11 @@ class AgentCLI(App):
         sb.set_status("Running...")
         output.write(Text(f"$ {command}", style="bold yellow"))
 
+        #得到返回的信息直接显示
         async def on_output(text: str):
             output.write(Text(text.rstrip("\n"), style="white"))
 
+        #用于得到结束的信息然后呈现在这里
         async def on_done(code: int):
             color = "green" if code == 0 else "red"
             output.write(Text(f"[exit code: {code}]", style=color))
@@ -482,7 +519,9 @@ class AgentCLI(App):
 
     async def _classify_intent(self, user_input: str) -> dict:
         return await self._a2a_runtime.classify_intent(
-            user_input, self.conversation_history
+            user_input,
+            self.conversation_history,
+            startup_context=self._startup_memory_context,
         )
 
     async def _dispatch_shell(self, user_input, classification, output, sb):

@@ -4,7 +4,9 @@ import json
 import os
 import platform
 import importlib
+
 from . import llm_client
+from .schema_protocol import SCHEMA_KIND_SHELL
 from .safety import check_command
 
 SHELL_SYSTEM_PROMPT = """You are the Shell Agent. Your job is to convert natural language requests into safe, executable shell commands.
@@ -17,13 +19,19 @@ SHELL_SYSTEM_PROMPT = """You are the Shell Agent. Your job is to convert natural
 
 ## Instructions
 Given the user's request and context from the Orchestrator Agent, generate a shell command.
-Respond with ONLY a JSON object:
+Respond with ONLY a JSON object using this envelope:
 {{
-  "intent": "run_command" | "ask_clarification" | "refuse",
-  "command": "the shell command to execute (empty if not run_command)",
-  "reason": "Brief explanation of what this command does",
-  "risk_level": "low" | "medium" | "high",
-  "clarification_options": ["option1", "option2"]
+    "ok": true,
+    "kind": "shell.command_plan",
+    "data": {{
+        "intent": "run_command" | "ask_clarification" | "refuse",
+        "command": "the shell command to execute (empty if not run_command)",
+        "reason": "Brief explanation of what this command does",
+        "risk_level": "low" | "medium" | "high",
+        "clarification_options": ["option1", "option2"]
+    }},
+    "error": null,
+    "meta": {{}}
 }}
 
 ## Safety Rules
@@ -41,7 +49,7 @@ def _get_context() -> dict:
     try:
         entries = os.listdir(cwd)[:100]
         dir_listing = ", ".join(entries) if entries else "(empty)"
-    except Exception:
+    except OSError:
         dir_listing = "(cannot read)"
 
     shell = "bash" if platform.system() != "Windows" else "cmd/powershell"
@@ -142,7 +150,11 @@ async def generate_command(task_description: str, user_input: str) -> dict:
                 "safety_check": {"level": "deny", "reasons": ["Offline parse failure"]},
             }
 
-    result = await llm_client.chat_json(messages)
+    result = await llm_client.chat_json(
+        messages,
+        schema_kind=SCHEMA_KIND_SHELL,
+        caller="shell_agent",
+    )
     if result is None:
         return {
             "intent": "refuse",
@@ -150,6 +162,18 @@ async def generate_command(task_description: str, user_input: str) -> dict:
             "reason": "Failed to generate command (LLM parse error)",
             "risk_level": "high",
             "safety_check": {"level": "deny", "reasons": ["Parse failure"]},
+        }
+
+    if isinstance(result, dict) and result.get("error"):
+        return {
+            "intent": "refuse",
+            "command": "",
+            "reason": str(result.get("error")),
+            "risk_level": "high",
+            "safety_check": {
+                "level": "deny",
+                "reasons": ["Schema validation failed, please retry input"],
+            },
         }
 
     return _with_safety(result)

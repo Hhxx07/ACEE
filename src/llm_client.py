@@ -1,9 +1,7 @@
 """Task 2.1: LLM API client with streaming support."""
 
-import json
 from typing import AsyncIterator
 
-from dotenv import load_dotenv
 from openai import (
     APIConnectionError,
     APIError,
@@ -13,8 +11,13 @@ from openai import (
 )
 
 from .config import CONFIG
-
-load_dotenv()
+from .llm_debug_log import append_llm_record
+from .schema_validator import (
+    build_retry_prompt,
+    format_user_error,
+    validate_json_text,
+    validate_tool_call_response,
+)
 
 RECOVERABLE_EXCEPTIONS = (
     APIError,
@@ -66,8 +69,11 @@ async def chat(
 async def chat_json(
     messages: list[dict],
     temperature: float | None = None,
+    *,
+    schema_kind: str,
+    caller: str,
 ) -> dict | None:
-    """Chat completion expecting JSON output. Retries once on parse failure."""
+    """Chat completion with JSON schema validation and retry handling."""
     client = _get_client()
 
     #在这里一共解析两次，第一次尝试失败的话（类型失败），就修正后再来一次。
@@ -76,6 +82,7 @@ async def chat_json(
         CONFIG.temperature_json if temperature is None else temperature
     )
     for attempt in range(CONFIG.json_retry_count):
+        raw_text = ""
         try:
             resp = await client.chat.completions.create(
                 model=MODEL,
@@ -83,24 +90,71 @@ async def chat_json(
                 temperature=chosen_temperature,
                 response_format={"type": "json_object"},
             )
-            text = resp.choices[0].message.content or ""
-            return json.loads(text)
-        except json.JSONDecodeError:
+            raw_text = resp.choices[0].message.content or ""
+            envelope, validation_error = validate_json_text(raw_text, schema_kind)
+
+            if validation_error is None and envelope is not None:
+                append_llm_record(
+                    {
+                        "request_id": resp.id,
+                        "caller": caller,
+                        "schema_kind": schema_kind,
+                        "model": MODEL,
+                        "attempt_index": attempt,
+                        "raw_text": raw_text,
+                        "parsed_json": envelope,
+                        "validation_errors": None,
+                        "final_status": "ok",
+                    }
+                )
+                return envelope["data"]
+
+            append_llm_record(
+                {
+                    "request_id": resp.id,
+                    "caller": caller,
+                    "schema_kind": schema_kind,
+                    "model": MODEL,
+                    "attempt_index": attempt,
+                    "raw_text": raw_text,
+                    "parsed_json": None,
+                    "validation_errors": validation_error,
+                    "final_status": "validation_failed",
+                }
+            )
+
             if attempt < CONFIG.json_retry_count - 1:
                 messages = messages + [
-                    {"role": "assistant", "content": text},
+                    {"role": "assistant", "content": raw_text},
                     {
                         "role": "user",
-                        "content": (
-                            "Your response was not valid JSON. "
-                            "Please output ONLY valid JSON."
-                        ),
+                        "content": build_retry_prompt(schema_kind, validation_error),
                     },
                 ]
                 continue
-            return None
+
+            return {
+                "error": format_user_error(validation_error),
+                "error_code": validation_error.get("code"),
+            }
         except RECOVERABLE_EXCEPTIONS as err:
-            return {"error": str(err)}
+            append_llm_record(
+                {
+                    "request_id": None,
+                    "caller": caller,
+                    "schema_kind": schema_kind,
+                    "model": MODEL,
+                    "attempt_index": attempt,
+                    "raw_text": raw_text,
+                    "parsed_json": None,
+                    "validation_errors": {
+                        "code": "api_error",
+                        "message": str(err),
+                    },
+                    "final_status": "api_error",
+                }
+            )
+            return {"error": f"LLM API error: {err}", "error_code": "api_error"}
     return None
 
 
@@ -108,6 +162,8 @@ async def chat_function_call(
     messages: list[dict],
     tools: list[dict],
     temperature: float | None = None,
+    *,
+    caller: str,
 ) -> dict:
     """Chat with function calling (tool use). Returns the full message object."""
     client = _get_client()
@@ -123,7 +179,7 @@ async def chat_function_call(
             temperature=chosen_temperature,
         )
         msg = resp.choices[0].message
-        return {
+        result = {
             "content": msg.content,
             "tool_calls": [
                 {
@@ -137,7 +193,60 @@ async def chat_function_call(
                 for tc in (msg.tool_calls or [])
             ],
         }
+
+        validation_error = validate_tool_call_response(result)
+        if validation_error is not None:
+            append_llm_record(
+                {
+                    "request_id": resp.id,
+                    "caller": caller,
+                    "schema_kind": "tool.function_call_result",
+                    "model": MODEL,
+                    "attempt_index": 0,
+                    "raw_text": str(msg.content or ""),
+                    "parsed_json": result,
+                    "validation_errors": validation_error,
+                    "final_status": "validation_failed",
+                }
+            )
+            return {
+                "content": f"[LLM Error] {format_user_error(validation_error)}",
+                "tool_calls": [],
+                "error": format_user_error(validation_error),
+                "error_code": validation_error.get("code"),
+            }
+
+        append_llm_record(
+            {
+                "request_id": resp.id,
+                "caller": caller,
+                "schema_kind": "tool.function_call_result",
+                "model": MODEL,
+                "attempt_index": 0,
+                "raw_text": str(msg.content or ""),
+                "parsed_json": result,
+                "validation_errors": None,
+                "final_status": "ok",
+            }
+        )
+        return result
     except RECOVERABLE_EXCEPTIONS as err:
+        append_llm_record(
+            {
+                "request_id": None,
+                "caller": caller,
+                "schema_kind": "tool.function_call_result",
+                "model": MODEL,
+                "attempt_index": 0,
+                "raw_text": "",
+                "parsed_json": None,
+                "validation_errors": {
+                    "code": "api_error",
+                    "message": str(err),
+                },
+                "final_status": "api_error",
+            }
+        )
         return {"content": f"[LLM Error] {err}", "tool_calls": []}
 
 

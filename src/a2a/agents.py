@@ -6,7 +6,7 @@ from typing import Any
 
 from .models import A2ARequest, A2AResponse, AgentCard, ErrorEnvelope, TaskState
 from .. import orchestrator, shell_agent, tool_agent
-from ..memory_agent import get_relevant_context, save_memory_record
+from ..memory_agent import get_relevant_context, get_startup_context, save_memory_record
 
 
 RECOVERABLE_EXCEPTIONS = (
@@ -39,7 +39,13 @@ class OrchestratorA2AAgent:
         try:
             user_input = str(request.payload.get("user_input", ""))
             history = request.payload.get("history") or []
-            result = await orchestrator.classify_intent(user_input, history)
+            startup_context = str(request.payload.get("startup_context", ""))
+            optional_kwargs = {"startup_context": startup_context} if startup_context else {}
+            result = await orchestrator.classify_intent(
+                user_input,
+                history,
+                **optional_kwargs,
+            )
             return A2AResponse(
                 request_id=request.request_id,
                 task_id=request.task_id,
@@ -111,7 +117,7 @@ class MemoryA2AAgent:
     card = AgentCard(
         name="memory",
         description="Provides relevant memory context for a user input.",
-        capabilities=["get_relevant_context", "save_auto_memory"],
+        capabilities=["get_relevant_context", "get_startup_context", "save_auto_memory"],
     )
 
     async def handle(self, request: A2ARequest) -> A2AResponse:
@@ -152,6 +158,22 @@ class MemoryA2AAgent:
                     from_agent=self.card.name,
                     state=TaskState.COMPLETED,
                     artifacts={"memory_record": record},
+                    state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.COMPLETED],
+                )
+
+            if request.action == "get_startup_context":
+                raw_limit = request.payload.get("limit", 5)
+                limit = int(raw_limit) if isinstance(raw_limit, (int, str)) else 5
+                payload = get_startup_context(limit=max(limit, 0))
+                return A2AResponse(
+                    request_id=request.request_id,
+                    task_id=request.task_id,
+                    from_agent=self.card.name,
+                    state=TaskState.COMPLETED,
+                    artifacts={
+                        "memory_context": payload.get("memory_context", ""),
+                        "startup_memories": payload.get("memories", []),
+                    },
                     state_history=[TaskState.CREATED, TaskState.RUNNING, TaskState.COMPLETED],
                 )
 

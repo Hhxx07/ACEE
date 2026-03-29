@@ -38,6 +38,21 @@ class A2ARuntime:
             return ""
         return str(response.artifacts.get("memory_context", ""))
 
+    async def get_startup_context(self, limit: int = 5) -> dict:
+        response = await self._transport.send(
+            A2ARequest(
+                to_agent="memory",
+                action="get_startup_context",
+                payload={"limit": max(limit, 0)},
+            )
+        )
+        if self._is_failure_response(response):
+            return {"memory_context": "", "startup_memories": []}
+        return {
+            "memory_context": str(response.artifacts.get("memory_context", "")),
+            "startup_memories": response.artifacts.get("startup_memories", []),
+        }
+
     async def save_auto_memory(
         self,
         content: str,
@@ -66,12 +81,22 @@ class A2ARuntime:
             return {}
         return response.artifacts.get("memory_record", {})
 
-    async def classify_intent(self, user_input: str, history: list[dict] | None = None) -> dict:
+    async def classify_intent(
+        self,
+        user_input: str,
+        history: list[dict] | None = None,
+        *,
+        startup_context: str = "",
+    ) -> dict:
         response = await self._transport.send(
             A2ARequest(
                 to_agent="orchestrator",
                 action="classify_intent",
-                payload={"user_input": user_input, "history": history or []},
+                payload={
+                    "user_input": user_input,
+                    "history": history or [],
+                    "startup_context": startup_context,
+                },
             )
         )
         if self._is_failure_response(response):
