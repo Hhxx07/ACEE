@@ -1,6 +1,6 @@
 # ACEE Multi-Agent CLI System
 
-ACEE 是一个基于终端的多 Agent CLI 系统。它通过编排代理识别用户意图，将请求分发到 Shell Agent、Tool Agent 或 Direct Answer 路径，并在 Textual TUI 中流式展示结果。
+这是一个基于终端的多 Agent CLI 系统。它通过编排代理识别用户意图，将请求分发到 Shell Agent、Tool Agent 或 Direct Answer 路径，并在 Textual TUI 中流式展示结果。
 
 项目核心目标：
 - 把自然语言请求转换为可执行动作（命令执行或工具调用）
